@@ -24,7 +24,7 @@ public static class GameArt
 
     private static async Task<string?> GetBySlugAsync(string folder, string slug)
     {
-        var cache = Path.Combine(FileSystem.CacheDirectory, $"{folder}-{AssetVersion}-{slug}.png");
+        var cache = Path.Combine(AppPaths.Cache, $"{folder}-{AssetVersion}-{slug}.png");
         if (File.Exists(cache)) return cache;
         try
         {

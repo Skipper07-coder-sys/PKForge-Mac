@@ -1555,7 +1555,7 @@ public sealed class BankPage : ContentPage, IPadPagingHandler
         {
             var bytes = _bank.GetData(entry.Id);
             var name = $"{entry.Info.Species:000} - {entry.Info.Nickname}{BankEntryFiles.ExtensionFor(entry.Info)}";
-            var path = System.IO.Path.Combine(FileSystem.CacheDirectory, name);
+            var path = System.IO.Path.Combine(AppPaths.Cache, name);
             await File.WriteAllBytesAsync(path, bytes);
             await Share.Default.RequestAsync(new ShareFileRequest { Title = name, File = new ShareFile(path) });
         }

@@ -1,3 +1,9 @@
+#if ANDROID
+using PlatformMusicPlayer = PKForge.App.Platforms.Android.MusicPlayer;
+#elif MACCATALYST
+using PlatformMusicPlayer = PKForge.App.Platforms.MacCatalyst.MusicPlayer;
+#endif
+
 namespace PKForge.App;
 
 public sealed class App : Application
@@ -15,8 +21,10 @@ public sealed class App : Application
     protected override void OnStart()
     {
         base.OnStart();
-        var music = IPlatformApplication.Current?.Services.GetService<Domain.IMusicPlayer>() as Platforms.Android.MusicPlayer;
+#if ANDROID || MACCATALYST
+        var music = IPlatformApplication.Current?.Services.GetService<Domain.IMusicPlayer>() as PlatformMusicPlayer;
         music?.MaybeAutostart();
+#endif
     }
 
     protected override void OnResume()
@@ -48,6 +56,8 @@ public sealed class App : Application
     {
 #if ANDROID
         Android.Util.Log.Info("PKForgeBoot", message);
+#else
+        System.Diagnostics.Debug.WriteLine($"PKForgeBoot: {message}");
 #endif
     }
 
@@ -62,11 +72,19 @@ public sealed class App : Application
             Trace("resolving HomePage");
             var page = services.GetRequiredService<Views.HomePage>();
             Trace("HomePage resolved");
-            return new Window(new NavigationPage(page)
+            var window = new Window(new NavigationPage(page)
             {
                 BarBackgroundColor = Theme.UiTokens.Navy1,
                 BarTextColor = Colors.White,
             });
+#if MACCATALYST
+            // Laid out for a 16:9 handheld: open at that shape, never squeeze it below usable.
+            window.Title = "PKForge";
+            MacWindowChrome.Apply(window, new(1280, 760), new(960, 580));
+            // The lower screen belongs to this window: closing it closes both, so the Dock can reopen cleanly.
+            window.Destroying += (_, _) => _ = services.GetService<Domain.ISecondaryDisplayHost>()?.DismissAsync();
+#endif
+            return window;
         }
         catch (Exception error)
         {

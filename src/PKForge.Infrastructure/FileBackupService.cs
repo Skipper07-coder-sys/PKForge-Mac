@@ -21,9 +21,9 @@ public sealed class FileBackupService(string rootDirectory, int maxVersions = 20
 
         var createdUtc = DateTimeOffset.UtcNow;
         var id = $"{createdUtc:yyyyMMddTHHmmssfffZ}-{Guid.NewGuid():N}";
-        var bytes = source.OriginalBytes.ToArray();
-        var sha = Convert.ToHexString(SHA256.HashData(bytes));
-        var info = new BackupInfo(id, createdUtc, sha, source.DisplayName, source.Format, source.Generation, bytes.LongLength, changeDescription);
+        var bytes = source.OriginalBytes;
+        var sha = Convert.ToHexString(SHA256.HashData(bytes.Span));
+        var info = new BackupInfo(id, createdUtc, sha, source.DisplayName, source.Format, source.Generation, bytes.Length, changeDescription);
 
         // Bytes first, sidecar last: a backup without a sidecar is ignored, never half-trusted.
         await File.WriteAllBytesAsync(BytesPath(id), bytes, cancellationToken).ConfigureAwait(false);
@@ -65,13 +65,31 @@ public sealed class FileBackupService(string rootDirectory, int maxVersions = 20
             .ToList();
     }
 
+    // Best effort: pruning must never fail the save that triggered it.
     private void Prune()
     {
-        foreach (var stale in ReadAll().Skip(_maxVersions))
+        try
         {
-            File.Delete(BytesPath(stale.BackupId));
-            File.Delete(SidecarPath(stale.BackupId));
+            foreach (var info in ReadAll().Skip(_maxVersions))
+            {
+                TryDelete(BytesPath(info.BackupId));
+                TryDelete(SidecarPath(info.BackupId));
+            }
+
+            var cutoff = DateTime.UtcNow.AddHours(-1);
+            foreach (var bin in Directory.EnumerateFiles(_root, "*.bin"))
+            {
+                if (!File.Exists(Path.ChangeExtension(bin, ".json")) && File.GetLastWriteTimeUtc(bin) < cutoff)
+                    TryDelete(bin);
+            }
         }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     private static BackupInfo? ReadSidecar(string path)

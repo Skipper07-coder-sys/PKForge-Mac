@@ -77,7 +77,7 @@ public sealed class PokeparkSpriteService
         await _network.WaitAsync().ConfigureAwait(false);
         try
         {
-            var directory = Path.Combine(FileSystem.CacheDirectory, "pokepark-pmd-v1", key.Replace('/', '_'));
+            var directory = Path.Combine(AppPaths.Cache, "pokepark-pmd-v1", key.Replace('/', '_'));
             Directory.CreateDirectory(directory);
             var xml = await ReadAsync(key, directory, "AnimData.xml", 256 * 1024).ConfigureAwait(false);
             var document = XDocument.Parse(Encoding.UTF8.GetString(xml));
@@ -175,7 +175,7 @@ public sealed class PokeparkSpriteService
     {
         try
         {
-            var root = new DirectoryInfo(Path.Combine(FileSystem.CacheDirectory, "pokepark-pmd-v1"));
+            var root = new DirectoryInfo(Path.Combine(AppPaths.Cache, "pokepark-pmd-v1"));
             if (!root.Exists) return;
             foreach (var folder in root.GetDirectories().OrderByDescending(d => d.LastWriteTimeUtc).Skip(Capacity))
                 try { folder.Delete(true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

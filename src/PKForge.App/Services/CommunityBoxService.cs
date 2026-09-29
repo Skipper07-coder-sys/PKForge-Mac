@@ -29,7 +29,7 @@ public sealed class CommunityBoxService
         _http = new HttpClient();
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("PKForge");
         _http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-        _cacheRoot = System.IO.Path.Combine(FileSystem.CacheDirectory, "community");
+        _cacheRoot = System.IO.Path.Combine(AppPaths.Cache, "community");
         Directory.CreateDirectory(_cacheRoot);
     }
 

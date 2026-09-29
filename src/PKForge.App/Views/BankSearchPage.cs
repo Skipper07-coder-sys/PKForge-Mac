@@ -417,7 +417,7 @@ public sealed class BankSearchPage : IPadPagingHandler
     {
         var tally = HeldItemSearch.Tally(_all.Select(_facts.HeldItem));
         var holders = tally.Sum(t => t.Count);
-        var directory = Path.Combine(FileSystem.AppDataDirectory, "items");
+        var directory = Path.Combine(AppPaths.Data, "items");
         var items = new List<PickItem>
         {
             new(0, "All (no item filter)"),

@@ -34,7 +34,7 @@ public sealed class SpritePackDownloader(ISpriteService sprites, IGameDataServic
     /// <summary>How many pack files this device still lacks; 0 once the pack is complete.</summary>
     public int CountMissing()
     {
-        var root = FileSystem.AppDataDirectory;
+        var root = AppPaths.Data;
         return SpritePack.Entries([]).Count(e => !File.Exists(Path.Combine(root, e.CachePath))) + WantedItems(root).Count;
     }
 
@@ -49,7 +49,7 @@ public sealed class SpritePackDownloader(ISpriteService sprites, IGameDataServic
 
     public async Task RunAsync(Action<string, double> onProgress, CancellationToken cancellationToken)
     {
-        var root = FileSystem.AppDataDirectory;
+        var root = AppPaths.Data;
         var spriteEntries = SpritePack.Entries([]);
         var missing = spriteEntries.Count(e => !File.Exists(Path.Combine(root, e.CachePath))) + WantedItems(root).Count;
         if (missing >= ArchiveThreshold && await TryArchiveAsync(root, onProgress, cancellationToken).ConfigureAwait(false))

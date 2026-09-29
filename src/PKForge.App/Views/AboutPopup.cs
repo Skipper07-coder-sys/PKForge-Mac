@@ -72,7 +72,10 @@ public static class AboutPopup
                 Row("Version", diagnostic ? $"v{version} · diagnostic" : $"v{version}"),
                 Row("Developed by", "@22sh"),
                 Row("Logo by", "@spritedmistery"),
-                Small("Engine PKHeX · chrome PKSM (GPL-3)"),
+#if MACCATALYST
+                Row("macOS port", "@macprotips · beta"),
+#endif
+                Small("Engine PKHeX · legality ALM · chrome PKSM (GPL-3)"),
                 Small("Sprites © Nintendo · Creatures · Game Freak"),
                 Small("github.com/sofianeelhor/pkforge", UiTokens.MenuBlue),
                 new HorizontalStackLayout { Spacing = 8, HorizontalOptions = LayoutOptions.End, Children = { close } },

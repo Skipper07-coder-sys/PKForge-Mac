@@ -177,7 +177,7 @@ public sealed class SpriteService : ISpriteService
         Task.Run(async () =>
         {
             SKBitmap? bitmap = null;
-            var diskPath = Path.Combine(FileSystem.AppDataDirectory, "home", remote.CacheName);
+            var diskPath = Path.Combine(AppPaths.Data, "home", remote.CacheName);
             await NetworkGate.WaitAsync().ConfigureAwait(false);
             try
             {
@@ -236,7 +236,7 @@ public sealed class SpriteService : ISpriteService
         Task.Run(async () =>
         {
             AnimatedSprite? sprite = null;
-            var diskPath = Path.Combine(FileSystem.AppDataDirectory, "showdown", remote.CacheName);
+            var diskPath = Path.Combine(AppPaths.Data, "showdown", remote.CacheName);
             await NetworkGate.WaitAsync().ConfigureAwait(false);
             try
             {
@@ -347,7 +347,7 @@ public sealed class SpriteService : ISpriteService
 
     public async Task<bool> DownloadPackFileAsync(SpritePack.Entry entry, CancellationToken cancellationToken)
     {
-        var diskPath = Path.Combine(FileSystem.AppDataDirectory, entry.CachePath);
+        var diskPath = Path.Combine(AppPaths.Data, entry.CachePath);
         var url = entry.Url;
         // The caller bounds its own concurrency; NetworkGate stays free for on-screen loads.
         if (File.Exists(diskPath)) return true;

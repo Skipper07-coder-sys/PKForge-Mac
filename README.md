@@ -1,181 +1,157 @@
 <p align="center"><img src="docs/images/logo-transparent.png" alt="PKForge" width="140" /></p>
 
-<p align="center"><b>A Pokémon save editor and bank for Android, support dual-screen handhelds.</b></p>
+<h1 align="center">PKForge for Mac</h1>
+
+<p align="center">A Pokémon save editor and bank, running natively on macOS.<br/>
+A port of <a href="https://github.com/sofianeelhor/PKForge">PKForge</a> by @22sh.</p>
 
 <p align="center">
-  <a href="https://discord.gg/bMtzZmTDfu"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
-  <a href="https://github.com/sofianeelhor/PKForge/releases"><img src="https://img.shields.io/badge/Download-APK-2B4E95" alt="Download" /></a>
+  <a href="../../releases"><img src="https://img.shields.io/badge/Download-macOS-2B4E95?logo=apple&logoColor=white" alt="Download for macOS" /></a>
+  <img src="https://img.shields.io/badge/status-beta-E8A33D" alt="Beta" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue" alt="License" /></a>
 </p>
 
 ---
 
+Open a save from your emulator, edit your team and boxes, and move Pokémon between games.
+Built on [PKHeX.Core](https://github.com/kwsch/PKHeX), with the
+[Auto Legality Mod](https://github.com/santacrab2/PKHeX-Plugins) built in, so legality
+checks and one-tap legalize work offline.
 
-A Pokémon save editor and cross-generation Bank for Android, tuned for dual-screen
-handhelds like the AYN Thor.
-Built on [PKHeX.Core](https://github.com/kwsch/PKHeX) with the
-[Auto Legality Mod](https://github.com/santacrab2/PKHeX-Plugins) compiled in-process, so
-legalizing a Pokémon works fully offline, on device.
+> [!WARNING]
+> **This is a beta and it needs testers.** It works, but it hasn't been used by many people
+> yet. Back up any save you care about before editing it, and check your edits in the
+> emulator. PKForge also keeps its own backup of every save it writes.
+> Found a problem? See [Help test](#help-test).
 
 Not affiliated with Nintendo, Game Freak, or The Pokémon Company.
 
 ## Features
 
-- **Manage your Pokémon.** Open any save from a linked emulator or a single file and
-  take full control of your team and boxes. Edit stats, IVs, EVs, moves, nature,
-  ability, held item, Met/Origin, Tera type, Hyper Training, shininess, friendship,
-  Pokérus, and more, with a live legality check as you go.
-- **One-tap legalize.** The Auto Legality Mod is compiled in-process, so legalizing a
-  Pokémon works fully offline, on device.
-- **Move Pokémon between games.** Grab a Pokémon from one save and drop it into another,
-  across generations, from a Gen 3 cartridge to a Gen 9 one. PKForge handles the
-  transfer smoothly, so your team can travel with you from game to game.
-- **A Bank like Pokémon Home.** Store your whole collection in a cross-game Bank with
-  unlimited themed boxes. Organize with the gamepad, keep living dexes, and pull
-  anything back out into any save whenever you need it.
-- **Track your collection.** The Living Dex tracker follows all 1025 Pokémon across
-  every generation, including shiny variants, so you always know what you still need.
-- **Browse and inject events.** The full Mystery Gift database is bundled and works
-  offline. Browse Wonder Cards from old distributions and inject them straight into
-  your save.
-- **Edit the bag.** The bag editor handles any pouch, any item, any quantity, with
-  presets and one-tap refills.
-- **Edit the trainer.** Change your name, IDs, money, and gender on the trainer card,
-  and manage trainer profiles and records.
-- **RNG tools.** Inspect PID, IVs, and nature, and reroll a nature while keeping
-  shininess.
-- **Batch edit.** The organizer handles multi-select operations: copy, move, duplicate,
-  delete, release, and send to the Bank or Poképark in bulk.
-- **Breed and hatch.** The egg factory and Day Care / Nursery tools generate eggs and
-  hatch Pokémon, including one egg of every species.
-- **Complete the Pokédex.** Mark everything seen, generate a living dex, and track
-  what is missing.
-- **Play with your Pokémon.** The Poképark is a living habitat where your Pokémon
-  wander while you're away. The Nuzlocke report tracks first encounters and dupes per
-  route, and the encounter browser shows every way to catch a species in each game.
-- **Share your teams.** Import and export Showdown sets, and generate QR codes to move
-  a set between devices.
-- **Game-specific editors.** Grand Underground, Poké Beans, Fashion, and more, tailored
-  to each game.
-- **Keep your saves safe.** Every write follows validate, backup, then atomic write, and
-  restore points capture every change exactly, so nothing is ever lost.
-
-## Screenshots
+- Edit anything on a Pokémon: stats, IVs/EVs, moves, nature, ability, item, origin,
+  Tera type, shininess and more, with a live legality check
+- Move Pokémon between games, across generations
+- A cross-game Bank with unlimited boxes, and a Living Dex tracker for all 1025
+- The full Mystery Gift database, offline
+- Bag, trainer, Pokédex, Day Care and game-specific editors
+- RNG tools, batch editing, Showdown import/export
+- Restore points for every change
 
 <p align="center">
   <img src="docs/screenshots/home.png" alt="Home" width="49%" />
   <img src="docs/screenshots/editor.png" alt="Editor" width="49%" />
 </p>
-
 <p align="center">
   <img src="docs/screenshots/bank.png" alt="Bank" width="49%" />
   <img src="docs/screenshots/living-dex.png" alt="Living Dex" width="49%" />
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/mystery-gift.png" alt="Mystery Gift" width="49%" />
-  <img src="docs/screenshots/bag.png" alt="Bag" width="49%" />
-</p>
+## Getting started
 
-<p align="center">
-  <img src="docs/screenshots/rng.png" alt="RNG tools" width="49%" />
-  <img src="docs/screenshots/pokepark.png" alt="Poképark" width="49%" />
-</p>
+1. **Install.** Download `PKForge-mac.zip` from [Releases](../../releases), unzip it, and drag
+   PKForge into Applications. Needs macOS 13 or later.
+2. **Save in your game, then quit the emulator.** PKForge edits the save file, so the
+   emulator shouldn't have it open.
+3. **Link your emulator.** In PKForge, open **Settings ▸ Link an emulator**, pick your console
+   and emulator, and choose the folder your saves are in. Your games appear on the shelf.
+   (No emulator? **Settings ▸ Open a save file** works with any save.)
+4. **Edit.** Click a game to open its boxes, click a Pokémon, change what you like, and hit
+   **Save changes**.
+5. **Play.** Start the game normally in your emulator. Don't load an older save state, or
+   you'll undo your edits.
 
-<p align="center">
-  <img src="docs/screenshots/trainer-card.png" alt="Trainer card" width="49%" />
-  <img src="docs/screenshots/showdown-qr.png" alt="Showdown QR" width="49%" />
-</p>
+Made a mistake? **Settings ▸ Restore points** puts any earlier version of the save back.
 
-<p align="center">
-  <img src="docs/screenshots/nuzlocke.png" alt="Nuzlocke report" width="49%" />
-  <img src="docs/screenshots/encounters.png" alt="Encounter browser" width="49%" />
-</p>
+## Emulators
 
-## Supported games
+Supported in **Link an emulator**:
 
-PKForge reads and edits saves from every mainline generation, plus the GameCube side
-games and popular romhacks:
+| Platform | Emulators |
+| --- | --- |
+| Game Boy, GBC, GBA | mGBA, OpenEmu, RetroArch |
+| DS | melonDS, DeSmuME, OpenEmu, RetroArch |
+| GameCube | Dolphin |
+| 3DS | Azahar / Lime3DS |
+| Switch | Eden |
 
-- **Generation I:** Red, Blue, Green (JP), Yellow
-- **Generation II:** Gold, Silver, Crystal
-- **Generation III:** Ruby, Sapphire, Emerald, FireRed, LeafGreen, Pokémon Box: Ruby & Sapphire, Colosseum, XD: Gale of Darkness
-- **Generation IV:** Diamond, Pearl, Platinum, HeartGold, SoulSilver
-- **Generation V:** Black, White, Black 2, White 2
-- **Generation VI:** X, Y, Omega Ruby, Alpha Sapphire
-- **Generation VII:** Sun, Moon, Ultra Sun, Ultra Moon, Let's Go Pikachu, Let's Go Eevee
-- **Generation VIII:** Sword, Shield, Brilliant Diamond, Shining Pearl, Legends: Arceus
-- **Generation IX:** Scarlet, Violet
-- **Romhacks:** Pokémon Unbound, Radical Red, GS Chronicles, Luminescent Platinum, Pokémon Compass
+Not sure where your saves are? The folder picker opens in the emulator's usual save folder when
+it can find one. melonDS, mGBA and DeSmuME keep saves next to your ROMs by default.
 
-## Supported emulators
+<details>
+<summary>Supported games</summary>
 
-Link a storage unit and PKForge finds your saves automatically:
+- **Gen I–II:** Red, Blue, Green (JP), Yellow, Gold, Silver, Crystal
+- **Gen III:** Ruby, Sapphire, Emerald, FireRed, LeafGreen, Box, Colosseum, XD
+- **Gen IV:** Diamond, Pearl, Platinum, HeartGold, SoulSilver
+- **Gen V:** Black, White, Black 2, White 2
+- **Gen VI:** X, Y, Omega Ruby, Alpha Sapphire
+- **Gen VII:** Sun, Moon, Ultra Sun, Ultra Moon, Let's Go Pikachu, Let's Go Eevee
+- **Gen VIII:** Sword, Shield, Brilliant Diamond, Shining Pearl, Legends: Arceus
+- **Gen IX:** Scarlet, Violet
+- **Romhacks:** Unbound, Radical Red, GS Chronicles, Luminescent Platinum, Compass
 
-- **Game Boy / Game Boy Color:** RetroArch, Linkboy, Pizza Boy C
-- **Game Boy Advance:** RetroArch, Linkboy, Pizza Boy A
-- **Nintendo DS:** melonDS, DraStic, RetroArch
-- **GameCube:** Dolphin
-- **Nintendo 3DS:** Azahar, Lime3DS, Citra MMJ
-- **Nintendo Switch:** Eden
+</details>
 
-You can also open a single save file directly.
+## Help test
 
-## Installation
+The most useful things to try:
 
-Download the APK from [Releases](https://github.com/sofianeelhor/PKForge/releases) and
-allow installs from unknown sources. First run walks you through linking an emulator
-(RetroArch, melonDS, Azahar/Lime3DS, Citra MMJ, Eden) or opening a single save file.
+- Your own saves, from the emulators and games you actually play
+- Moving Pokémon between two games, and in and out of the Bank
+- Editing, saving, then loading the save in your emulator
+- Keyboard and controller navigation
 
-## 💬 Discord
+If something breaks, [open an issue](../../issues/new?template=bug_report.md) with the game,
+the emulator, your Mac and macOS version, and what happened. A screenshot helps. Don't attach
+save files you want to keep private.
 
-Join for updates, support, bug reports, feature requests, or just to chat about the project.
+## Controls
 
-👉 **[Join the PKForge Discord](https://discord.gg/bMtzZmTDfu)**
+Mouse, keyboard or a controller (Xbox, PlayStation, Switch, MFi).
 
-[![Discord](https://discordapp.com/api/guilds/1542192456018427926/widget.png?style=banner3&time-)](https://discord.gg/XkeD2vKJCZ)
+| | Keyboard |
+| --- | --- |
+| D-pad | Arrow keys |
+| A / B | Return / Esc |
+| X / Y | S / A |
+| L / R | Q / W |
+| Start / Select | Tab / right Shift |
+
+Right-click does what a long press does. The lower screen opens as its own window;
+**Window ▸ Show Second Screen** (⌘2) brings it back.
+
+Your Bank and backups live in `~/Library/Application Support/PKForge`.
 
 ## Building
 
-.NET 10 SDK with the `maui-android` workload, Android SDK (API 36).
+Needs Xcode and the .NET 10 SDK with the `maui-maccatalyst` workload.
 
 ```bash
-git submodule update --init --recursive
-dotnet test tests/PKForge.Domain.Tests/PKForge.Domain.Tests.csproj
-dotnet test tests/PKForge.Engine.Tests/PKForge.Engine.Tests.csproj
-dotnet build src/PKForge.App/PKForge.App.csproj -f net10.0-android
+git clone --recursive https://github.com/macprotips/PKForge-Mac.git
+cd PKForge-Mac
+tools/build-mac.sh
 ```
 
-Version tags build and publish the APK from CI.
-
-### Layout
-
-```
-src/PKForge.Domain          contracts and DTOs, no engine or Android dependencies
-src/PKForge.Engine          adapters over pinned PKHeX.Core
-src/PKForge.AutoMod         compiles the Auto Legality Mod against our Core
-src/PKForge.Infrastructure  bank, backups, atomic save writer
-src/PKForge.App             MAUI app, SkiaSharp UI, gamepad and second screen
-src/PKForge.Chrome          the design system: tokens and painters, pure Skia
-tools/ChromePreview         renders the design system off-device
-docs/                       architecture, bank model, development, art direction
-```
+The app lands in `dist/`. To sign and notarize a release, set `PKFORGE_SIGN_IDENTITY` to your
+Developer ID and `PKFORGE_NOTARY_PROFILE` to a `notarytool` keychain profile first.
 
 ## Credits
 
+- [PKForge](https://github.com/sofianeelhor/PKForge) by @22sh, the app this is a port of
+  (the Android version and its Discord live there). Logo by @spritedmistery.
+- Mac port by [@macprotips](https://github.com/macprotips), with the majority of the port done by
+  **Claude Opus 5.5**
 - [PKHeX](https://github.com/kwsch/PKHeX), the engine everything runs on
-- [PKHeX-Plugins / Auto Legality Mod](https://github.com/santacrab2/PKHeX-Plugins), the
-  offline legalizer compiled in-process
-- [PKSM](https://github.com/FlagBrew/PKSM), the pixel chrome this UI builds on (GPL-3,
-  see [UI attribution](src/PKForge.App/Resources/UI/ATTRIBUTION.md))
-- [SteamGridDB](https://www.steamgriddb.com), cartridge icons, second-screen logos, and
-  hero banners for the game library (community submissions; see
-  [game art attribution](src/PKForge.App/Resources/GameArt/ATTRIBUTION.md))
-- [PokeAPI](https://pokeapi.co), item art fetched at runtime and cached on device
-- [game-icons.net](https://game-icons.net) (CC-BY 3.0, © Lorc, Delapouite, Guard13007,
-  Carl Olsen and other contributing artists), UI symbols
-- [Bulbagarden Archives](https://archives.bulbagarden.net), Pokérus status sprites
-- Sprites and Pokémon names © Nintendo, Creatures Inc., GAME FREAK inc.
+- [PKHeX-Plugins / Auto Legality Mod](https://github.com/santacrab2/PKHeX-Plugins)
+- [PKSM](https://github.com/FlagBrew/PKSM), the pixel UI this builds on
+  ([attribution](src/PKForge.App/Resources/UI/ATTRIBUTION.md))
+- [SteamGridDB](https://www.steamgriddb.com) game art
+  ([attribution](src/PKForge.App/Resources/GameArt/ATTRIBUTION.md)),
+  [PokeAPI](https://pokeapi.co) item art,
+  [game-icons.net](https://game-icons.net) icons (CC-BY 3.0),
+  [Bulbagarden Archives](https://archives.bulbagarden.net) Pokérus sprites
+- Emulator names belong to their projects. Pokémon names and sprites © Nintendo,
+  Creatures Inc., GAME FREAK inc.
 
 ## License
 

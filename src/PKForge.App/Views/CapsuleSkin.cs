@@ -18,7 +18,7 @@ namespace PKForge.App.Views;
 /// onto the shadow; focus (SetButtonFocus) lifts it a pixel; disabled goes flat and dim.
 /// Callers keep setting BackgroundColor / BorderColor / IsEnabled — the skin re-reads them.
 /// </summary>
-public static class CapsuleSkin
+public static partial class CapsuleSkin
 {
     internal sealed class State
     {
@@ -42,6 +42,14 @@ public static class CapsuleSkin
         return state;
     }
 
+    private static Color Shade(Color c, float t) =>
+        t >= 0 ? new Color(c.Red + (1 - c.Red) * t, c.Green + (1 - c.Green) * t, c.Blue + (1 - c.Blue) * t, c.Alpha)
+               : new Color(c.Red * (1 + t), c.Green * (1 + t), c.Blue * (1 + t), c.Alpha);
+
+    private static Color Grey(Color c) { var l = c.Red * 0.3f + c.Green * 0.59f + c.Blue * 0.11f; return new Color(l, l, l); }
+    private static bool Near(Color a, Color b) =>
+        Math.Abs(a.Red - b.Red) < 0.01f && Math.Abs(a.Green - b.Green) < 0.01f && Math.Abs(a.Blue - b.Blue) < 0.01f;
+
     internal static bool IsPrimary(Button button) => States.TryGetValue(button, out var s) && s.Primary;
 
     internal static bool IsSkinned(Button button) => States.TryGetValue(button, out _);
@@ -60,8 +68,6 @@ public static class CapsuleSkin
     private static readonly ConditionalWeakTable<MaterialButton, object> Hooked = new();
     private static readonly Dictionary<string, Android.Graphics.Bitmap> Bitmaps = new(StringComparer.Ordinal);
 
-    private static bool Near(Color a, Color b) =>
-        Math.Abs(a.Red - b.Red) < 0.01f && Math.Abs(a.Green - b.Green) < 0.01f && Math.Abs(a.Blue - b.Blue) < 0.01f;
 
     /// <summary>Hooks the Button handler once (called from MauiProgram).</summary>
     public static void Register()
@@ -82,11 +88,6 @@ public static class CapsuleSkin
 
     private static AColor Native(Color c) => c.ToPlatform();
 
-    private static Color Shade(Color c, float t) =>
-        t >= 0 ? new Color(c.Red + (1 - c.Red) * t, c.Green + (1 - c.Green) * t, c.Blue + (1 - c.Blue) * t, c.Alpha)
-               : new Color(c.Red * (1 + t), c.Green * (1 + t), c.Blue * (1 + t), c.Alpha);
-
-    private static Color Grey(Color c) { var l = c.Red * 0.3f + c.Green * 0.59f + c.Blue * 0.11f; return new Color(l, l, l); }
 
     private static void Apply(IButtonHandler handler, IButton view)
     {

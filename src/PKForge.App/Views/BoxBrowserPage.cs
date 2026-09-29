@@ -120,11 +120,11 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             screen.Stroke = frame;
         }
         TintScreen();
-        _viewModel.PropertyChanged += (_, args) =>
+        WeakSubscription.PropertyChanged(_viewModel, this, (_, args) =>
         {
             if (args.PropertyName is nameof(BoxBrowserViewModel.BoxIndex) or nameof(BoxBrowserViewModel.Save))
                 TintScreen();
-        };
+        });
 
         _sidePanel = BuildSidePanel();
 
@@ -155,7 +155,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         _hostGrid = new Grid { Children = { root } };
         Content = _hostGrid;
 
-        viewModel.PropertyChanged += (_, args) =>
+        WeakSubscription.PropertyChanged(viewModel, this, (_, args) =>
         {
             if (args.PropertyName is nameof(BoxBrowserViewModel.Save) or nameof(BoxBrowserViewModel.BoxIndex)
                 or nameof(BoxBrowserViewModel.SelectedSlot) or nameof(BoxBrowserViewModel.VisibleSlots))
@@ -173,12 +173,12 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             }
             if (args.PropertyName is nameof(BoxBrowserViewModel.CarrySource) && !_viewModel.SelectMode && !_boxManageMode && !_editorFocusMode)
                 SetStorageFooter(); // Grab ↔ Place, Back ↔ Cancel
-        };
-        theme.PropertyChanged += (_, args) =>
+        });
+        WeakSubscription.PropertyChanged(theme, this, (_, args) =>
         {
             if (args.PropertyName is nameof(ThemeService.SkAccent))
                 _canvas.InvalidateSurface();
-        };
+        });
     }
 
     /// <summary>Draws the box-name bar: cream bar, label, yellow chevron caps when pages exist.</summary>
@@ -467,7 +467,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         try
         {
             // Bundled font copied to cache once (the ball-icon pattern), then opened by path.
-            var cache = System.IO.Path.Combine(FileSystem.CacheDirectory, "NDS12.ttf");
+            var cache = System.IO.Path.Combine(AppPaths.Cache, "NDS12.ttf");
             if (!File.Exists(cache))
             {
                 using var asset = FileSystem.OpenAppPackageFileAsync("NDS12.ttf").GetAwaiter().GetResult();
@@ -533,11 +533,11 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             editor.IsVisible = hasSelection;
             idle.IsVisible = !hasSelection;
         }
-        _viewModel.PropertyChanged += (_, args) =>
+        WeakSubscription.PropertyChanged(_viewModel, this, (_, args) =>
         {
             if (args.PropertyName is nameof(BoxBrowserViewModel.Selected))
                 SwapPanels();
-        };
+        });
         SwapPanels();
 
         var body = new Grid { Children = { idle, editor } };
@@ -1073,7 +1073,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             return;
         }
         const int AnyItem = int.MinValue;
-        var directory = Path.Combine(FileSystem.AppDataDirectory, "items");
+        var directory = Path.Combine(AppPaths.Data, "items");
         var items = new List<PickItem> { new(AnyItem, "Any held item", Detail: $"{tally.Sum(t => t.Count)} Pokémon") };
         foreach (var (id, n) in tally)
         {
@@ -1199,7 +1199,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
                 break;
             case "Export (.pk files)":
             {
-                var directory = System.IO.Path.Combine(FileSystem.CacheDirectory, "export");
+                var directory = System.IO.Path.Combine(AppPaths.Cache, "export");
                 Directory.CreateDirectory(directory);
                 var paths = _viewModel.BulkExport(directory);
                 if (paths.Count == 0) return;
@@ -1443,7 +1443,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
                 _viewModel.Status = "Box copied as Showdown text.";
                 return;
             case "Share as file":
-                var path = System.IO.Path.Combine(FileSystem.CacheDirectory, $"box-{_viewModel.BoxIndex + 1}.txt");
+                var path = System.IO.Path.Combine(AppPaths.Cache, $"box-{_viewModel.BoxIndex + 1}.txt");
                 await File.WriteAllTextAsync(path, text);
                 await Share.Default.RequestAsync(new ShareFileRequest { Title = "Showdown team", File = new ShareFile(path) });
                 return;
@@ -1639,7 +1639,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         if (session is null) return;
         var text = session.ExportBoxShowdown(_viewModel.BoxIndex);
         if (text.Length == 0) { _viewModel.Status = "This box is empty"; return; }
-        var path = Path.Combine(FileSystem.CacheDirectory, $"box-{_viewModel.BoxIndex + 1:00}-showdown.txt");
+        var path = Path.Combine(AppPaths.Cache, $"box-{_viewModel.BoxIndex + 1:00}-showdown.txt");
         File.WriteAllText(path, text);
         await Share.Default.RequestAsync(new ShareFileRequest { Title = $"Box {_viewModel.BoxIndex + 1:00} Showdown", File = new ShareFile(path) });
     }
@@ -2002,7 +2002,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     {
         try
         {
-            var path = System.IO.Path.Combine(FileSystem.CacheDirectory, "pkforge-audit.txt");
+            var path = System.IO.Path.Combine(AppPaths.Cache, "pkforge-audit.txt");
             await File.WriteAllTextAsync(path, text);
             await Share.Default.RequestAsync(new ShareFileRequest
             {
@@ -2415,7 +2415,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
                 baseName = baseName.Replace(invalid, '_');
             var extension = Path.GetExtension(originalName);
             if (string.IsNullOrWhiteSpace(extension)) extension = ".sav";
-            var path = Path.Combine(FileSystem.CacheDirectory, $"{baseName}-modified{extension}");
+            var path = Path.Combine(AppPaths.Cache, $"{baseName}-modified{extension}");
             await File.WriteAllBytesAsync(path, session.Serialize().ToArray());
             await Share.Default.RequestAsync(new ShareFileRequest
             {
@@ -2945,7 +2945,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             // Open the picker IMMEDIATELY with cached-or-placeholder art. The old flow
             // blocked on fetching every sprite first, which on a cold cache read as
             // "the button does nothing" for the better part of a minute.
-            var itemDirectory = System.IO.Path.Combine(FileSystem.AppDataDirectory, "items");
+            var itemDirectory = System.IO.Path.Combine(AppPaths.Data, "items");
             var placeholder = ItemArt.PlaceholderPath();
             var legal = legalIds.Select(id =>
             {
@@ -3007,7 +3007,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             {
                 try
                 {
-                    var store = new PKForge.Infrastructure.ItemPresetStore(Path.Combine(FileSystem.AppDataDirectory, "item-presets.json"));
+                    var store = new PKForge.Infrastructure.ItemPresetStore(Path.Combine(AppPaths.Data, "item-presets.json"));
                     if (choice == "Save current bag as preset") await SavePersonalPresetAsync(store);
                     else await ShowPersonalPresetsAsync(store);
                 }
@@ -4119,7 +4119,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         try
         {
             var export = session.ExportSlot(_viewModel.BoxIndex, slot);
-            var path = System.IO.Path.Combine(FileSystem.CacheDirectory, export.FileName);
+            var path = System.IO.Path.Combine(AppPaths.Cache, export.FileName);
             await File.WriteAllBytesAsync(path, export.Data);
             await Share.Default.RequestAsync(new ShareFileRequest
             {
@@ -4277,11 +4277,11 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         {
             legality.IsVisible = _viewModel.LegalityBadge == "✗";
         }
-        _viewModel.PropertyChanged += (_, args) =>
+        WeakSubscription.PropertyChanged(_viewModel, this, (_, args) =>
         {
             if (args.PropertyName is nameof(BoxBrowserViewModel.LegalityBadge))
                 UpdateLegalityAction();
-        };
+        });
         UpdateLegalityAction();
 
         var data = IPlatformApplication.Current!.Services.GetRequiredService<IGameDataService>();
@@ -4366,11 +4366,11 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         genderTap.Tapped += async (_, _) => await OpenGenderPickerAsync();
         gender.GestureRecognizers.Add(genderTap);
         genderValue.Text = _viewModel.EditGender switch { "0" => "Male", "1" => "Female", _ => "Genderless" };
-        _viewModel.PropertyChanged += (_, args) =>
+        WeakSubscription.PropertyChanged(_viewModel, this, (_, args) =>
         {
             if (args.PropertyName is nameof(BoxBrowserViewModel.EditGender) or nameof(BoxBrowserViewModel.Selected))
                 genderValue.Text = _viewModel.EditGender switch { "0" => "Male", "1" => "Female", _ => "Genderless" };
-        };
+        });
         var ot = FocusBorder(FieldRow("OT", nameof(BoxBrowserViewModel.EditOt), shaded: true), "OT", () =>
         {
             if (otRow is not null) FocusEntry(otRow);
@@ -4765,7 +4765,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     /// <summary>Bundled ribbon artwork copied to cache once so Image can load it by file path.</summary>
     private static string? RibbonIconPath(string id)
     {
-        var cache = System.IO.Path.Combine(FileSystem.CacheDirectory, $"ribbon-{id.ToLowerInvariant()}.png");
+        var cache = System.IO.Path.Combine(AppPaths.Cache, $"ribbon-{id.ToLowerInvariant()}.png");
         if (File.Exists(cache)) return cache;
         try
         {
@@ -4973,12 +4973,12 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             warn.IsVisible = facts.BelowMetLevel;
         }
 
-        _viewModel.PropertyChanged += (_, args) =>
+        WeakSubscription.PropertyChanged(_viewModel, this, (_, args) =>
         {
             if (args.PropertyName is nameof(BoxBrowserViewModel.EditLevel) or nameof(BoxBrowserViewModel.Selected)
                 or nameof(BoxBrowserViewModel.EditSpecies) or nameof(BoxBrowserViewModel.EditIvs) or nameof(BoxBrowserViewModel.EditEvs))
                 Refresh();
-        };
+        });
         Refresh();
         return card;
     }
@@ -4996,7 +4996,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     /// <summary>The held-item row: holdable items first with their effects, sprites where cached.</summary>
     private async Task OpenHeldItemPickerAsync(IGameDataService data)
     {
-        var directory = System.IO.Path.Combine(FileSystem.AppDataDirectory, "items");
+        var directory = System.IO.Path.Combine(AppPaths.Data, "items");
         var placeholder = ItemArt.PlaceholderPath();
         string? Icon(int id)
         {
@@ -5056,7 +5056,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     private static List<PickItem> ItemsWithIcons(IReadOnlyList<string> names)
     {
         var items = new List<PickItem>(names.Count) { new(0, "(none)") };
-        var directory = System.IO.Path.Combine(FileSystem.AppDataDirectory, "items");
+        var directory = System.IO.Path.Combine(AppPaths.Data, "items");
         for (var id = 1; id < names.Count; id++)
         {
             if (names[id].Length == 0) continue;
@@ -5093,7 +5093,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     /// <summary>Bundled ball icon copied to cache once so Image can load it by file path.</summary>
     private static string? BallIconPath(int ball)
     {
-        var cache = System.IO.Path.Combine(FileSystem.CacheDirectory, $"ballicon-{ball}.png");
+        var cache = System.IO.Path.Combine(AppPaths.Cache, $"ballicon-{ball}.png");
         if (File.Exists(cache)) return cache;
         try
         {

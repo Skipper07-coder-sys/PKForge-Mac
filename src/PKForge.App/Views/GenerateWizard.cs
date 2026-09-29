@@ -50,7 +50,7 @@ public static class GenerateWizard
     /// </summary>
     private static async Task<string?> FormSpritePathAsync(int species, int form)
     {
-        var target = System.IO.Path.Combine(FileSystem.CacheDirectory, $"form-v2-{species}-{form}.png");
+        var target = System.IO.Path.Combine(AppPaths.Cache, $"form-v2-{species}-{form}.png");
         if (File.Exists(target)) return target;
         try
         {

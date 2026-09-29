@@ -147,7 +147,7 @@ public sealed class PokedexPicker : IPadHandler
     }
 
     private static string IconCachePath(int species) =>
-        System.IO.Path.Combine(FileSystem.CacheDirectory, $"mini-v2-{species}.png");
+        System.IO.Path.Combine(AppPaths.Cache, $"mini-v2-{species}.png");
 
     /// <summary>
     /// Crops transparent padding, scales every species to one visual footprint, then

@@ -14,13 +14,14 @@ public sealed class PksmArt
     
 
     private static readonly SKPaint NearestPaint = new();
+    private static readonly SKBitmap Empty = new(1, 1);
 
     /// <summary>Registers raw PNG bytes under a name (idempotent; first bytes win).</summary>
     public void Supply(string name, byte[] png)
     {
         if (_cache.ContainsKey(name) || _miss.ContainsKey(name)) return;
         var bmp = SKBitmap.Decode(png);
-        if (bmp is null) { _miss[name] = new SKBitmap(1, 1); return; }
+        if (bmp is null) { _miss[name] = Empty; return; }
         _cache[name] = bmp;
     }
 
@@ -34,7 +35,7 @@ public sealed class PksmArt
     {
         var b = Get(name);
         if (b is null) return;
-        c.DrawBitmap(b, dst, new SKPaint());
+        c.DrawBitmap(b, dst, NearestPaint);
     }
 
     /// <summary>Draws at integer scale (2x, 3x...) anchored top-left.</summary>
@@ -43,7 +44,7 @@ public sealed class PksmArt
         var b = Get(name);
         if (b is null) return;
         c.DrawBitmap(b, new SKRect(x, y, x + b.Width * scale, y + b.Height * scale),
-            new SKPaint());
+            NearestPaint);
     }
 
     /// <summary>
@@ -63,7 +64,7 @@ public sealed class PksmArt
         if (bmp is null) return;
         var w = bmp.Width;
         var h = bmp.Height;
-        var p = new SKPaint();
+        var p = NearestPaint;
 
         void Piece(int sx, int sy, int sw, int sh, float dx, float dy, float dw, float dh)
         {
@@ -91,11 +92,12 @@ public sealed class PksmArt
         var key = $"{name}#{color}";
         if (_cache.TryGetValue(key, out var cached)) return cached;
         var src = Get(name);
-        if (src is null) return new SKBitmap(1, 1);
+        if (src is null) return Empty;
         var copy = new SKBitmap(src.Width, src.Height);
         using var canvas = new SKCanvas(copy);
         canvas.DrawBitmap(src, 0, 0);
-        canvas.DrawRect(0, 0, src.Width, src.Height, new SKPaint { Color = color, BlendMode = SKBlendMode.SrcIn });
+        using var tint = new SKPaint { Color = color, BlendMode = SKBlendMode.SrcIn };
+        canvas.DrawRect(0, 0, src.Width, src.Height, tint);
         _cache[key] = copy;
         return copy;
     }

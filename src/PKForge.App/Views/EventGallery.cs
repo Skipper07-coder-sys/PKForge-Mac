@@ -1581,7 +1581,7 @@ public static class EventGallery
                     _note.Text = "Nothing to export for this card.";
                     return;
                 }
-                var path = System.IO.Path.Combine(FileSystem.CacheDirectory, export.FileName);
+                var path = System.IO.Path.Combine(AppPaths.Cache, export.FileName);
                 await File.WriteAllBytesAsync(path, export.Data);
                 await Share.Default.RequestAsync(new ShareFileRequest { Title = Shown.Title, File = new ShareFile(path) });
                 _note.Text = $"Exported {export.FileName}";

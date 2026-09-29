@@ -82,7 +82,7 @@ public static class BankEntryEditor
     /// <summary>Held-item list with sprites for anything already cached (misses show name only).</summary>
     private static List<PickItem> ItemIcons(IReadOnlyList<string> names)
     {
-        var directory = System.IO.Path.Combine(FileSystem.AppDataDirectory, "items");
+        var directory = System.IO.Path.Combine(AppPaths.Data, "items");
         var items = new List<PickItem> { new(0, "(none)") };
         for (var id = 1; id < names.Count; id++)
         {
@@ -106,7 +106,7 @@ public static class BankEntryEditor
 
     private static string? BallIconPath(int ball)
     {
-        var cache = System.IO.Path.Combine(FileSystem.CacheDirectory, $"ballicon-{ball}.png");
+        var cache = System.IO.Path.Combine(AppPaths.Cache, $"ballicon-{ball}.png");
         if (File.Exists(cache)) return cache;
         try
         {

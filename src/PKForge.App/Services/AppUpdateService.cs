@@ -1,6 +1,8 @@
 using System.Text.Json;
+#if ANDROID
 using Android.App;
 using Android.Content.PM;
+#endif
 using PKForge.Domain;
 
 #if ANDROID
@@ -31,6 +33,11 @@ public sealed class AppUpdateService
     {
         if (AppInfo.Current.PackageName?.EndsWith(".debug", StringComparison.OrdinalIgnoreCase) == true)
             return new AppUpdateCheck(false, null, "Diagnostics builds are updated manually.");
+#if !ANDROID
+        // Releases ship Android APKs only; desktop builds are rebuilt from source.
+        return new AppUpdateCheck(false, null, "Mac builds are updated manually (rebuild from source).");
+#pragma warning disable CS0162 // Shared Android release-check path below.
+#endif
 
         using var checkTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         checkTimeout.CancelAfter(TimeSpan.FromSeconds(15));
@@ -69,6 +76,9 @@ public sealed class AppUpdateService
             AppUpdateRules.IsNewerVersion(AppInfo.Current.VersionString, update.Version)
                 ? $"Version {update.Version} is available."
                 : $"PKForge {AppInfo.Current.VersionString} is up to date.");
+#if !ANDROID
+#pragma warning restore CS0162
+#endif
     }
 
     public bool ShouldPromptAutomatically(AvailableAppUpdate update) =>
@@ -88,7 +98,7 @@ public sealed class AppUpdateService
             return AppUpdateInstallResult.InstallPermissionRequired;
         }
 
-        var directory = Path.Combine(FileSystem.CacheDirectory, "updates");
+        var directory = Path.Combine(AppPaths.Cache, "updates");
         Directory.CreateDirectory(directory);
         foreach (var old in Directory.EnumerateFiles(directory, "pkforge-*.apk*"))
             File.Delete(old);
@@ -183,6 +193,10 @@ public sealed class AppUpdateService
         Android.Util.Log.Info("PKForgeUpdate", $"Committed install session {sessionId}");
     }
 #pragma warning restore CA1416
+#else
+    private static bool CanRequestInstalls() => false;
+
+    public static void OpenInstallPermissionSettings() { }
 #endif
 }
 

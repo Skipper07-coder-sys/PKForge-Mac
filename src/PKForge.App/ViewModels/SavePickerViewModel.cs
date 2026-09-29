@@ -104,6 +104,7 @@ public static class SaveDescriptions
         EmulatorKind.PizzaBoyGba => "Pizza Boy GBA",
         EmulatorKind.PizzaBoyGbc => "Pizza Boy GBC",
         EmulatorKind.CitraMmj => "Citra MMJ",
+        EmulatorKind.MGba => "mGBA",
         _ => kind.ToString(),
     };
 }
@@ -235,6 +236,15 @@ public partial class SavePickerViewModel : ObservableObject
 
     [RelayCommand]
     private Task AddPizzaBoyGbcAsync() => AddRootAndScanAsync(EmulatorKind.PizzaBoyGbc);
+
+    [RelayCommand]
+    private Task AddMGbaAsync() => AddRootAndScanAsync(EmulatorKind.MGba);
+
+    [RelayCommand]
+    private Task AddOpenEmuAsync() => AddRootAndScanAsync(EmulatorKind.OpenEmu);
+
+    [RelayCommand]
+    private Task AddDeSmuMEAsync() => AddRootAndScanAsync(EmulatorKind.DeSmuME);
 
     [RelayCommand]
     public async Task RescanAsync()
@@ -517,7 +527,7 @@ public partial class SavePickerViewModel : ObservableObject
     private async Task AddRootAndScanAsync(EmulatorKind kind)
     {
         if (IsBusy) return;
-        var folder = await _folderPicker.PickFolderAsync();
+        var folder = await _folderPicker.PickFolderAsync(kind);
         if (folder is null) return;
         _roots.AddRoot(new WatchedRoot(kind, folder.TreeId, folder.DisplayName));
         CompleteSetup();
@@ -547,6 +557,9 @@ public partial class SavePickerViewModel : ObservableObject
             "Pick the folder that holds your .sav files: next to your ROMs by default, or the save folder set in melonDS's settings.",
         EmulatorKind.DraStic => "Pick DraStic's backup folder (its .dsv battery saves) or the DraStic data folder.",
         EmulatorKind.Eden => "Pick Eden's files root, the folder that contains its emulated storage.",
+        EmulatorKind.MGba => "Pick the folder that holds your .sav files: next to your ROMs by default, or the save folder set in mGBA's settings.",
+        EmulatorKind.OpenEmu => "Pick OpenEmu's Battery Saves folder (Application Support/OpenEmu/Battery Saves) or one system folder inside it.",
+        EmulatorKind.DeSmuME => "Pick the folder that holds your .dsv files: DeSmuME's Battery folder, or next to your ROMs.",
         _ => "Pick the folder that holds your save files.",
     };
 

@@ -23,7 +23,7 @@ public static class ItemArt
     /// <summary>True when the icon is on disk, or a recent attempt found none upstream.</summary>
     public static bool IsCachedOrKnownMissing(string itemName)
     {
-        var cache = Path.Combine(FileSystem.AppDataDirectory, "items", Slug(itemName) + ".png");
+        var cache = Path.Combine(AppPaths.Data, "items", Slug(itemName) + ".png");
         return File.Exists(cache) || IsFreshMiss(cache + ".miss");
     }
 
@@ -32,7 +32,7 @@ public static class ItemArt
     {
         if (string.IsNullOrWhiteSpace(itemName)) return null;
         var slug = Slug(itemName);
-        var directory = Path.Combine(FileSystem.AppDataDirectory, "items");
+        var directory = Path.Combine(AppPaths.Data, "items");
         var cache = Path.Combine(directory, slug + ".png");
         var miss = cache + ".miss";
         if (File.Exists(cache)) return cache;
@@ -82,7 +82,7 @@ public static class ItemArt
     /// </summary>
     public static string PlaceholderPath()
     {
-        var path = Path.Combine(FileSystem.AppDataDirectory, "items", "_placeholder.png");
+        var path = Path.Combine(AppPaths.Data, "items", "_placeholder.png");
         if (File.Exists(path)) return path;
         try
         {
@@ -172,7 +172,7 @@ public static class ItemArt
     {
         try
         {
-            var directory = Path.Combine(FileSystem.AppDataDirectory, "items");
+            var directory = Path.Combine(AppPaths.Data, "items");
             if (!Directory.Exists(directory)) return;
             foreach (var miss in Directory.EnumerateFiles(directory, "*.miss"))
                 File.Delete(miss);

@@ -14,6 +14,12 @@ public enum EmulatorKind
     PizzaBoyGbc = 8,
     /// <summary>Citra MMJ (weihuoya fork, org.citra.emu): same SDMC layout as Azahar, rooted at citra-emu/.</summary>
     CitraMmj = 9,
+    /// <summary>mGBA (desktop): battery saves beside the ROM, or its configured save folder.</summary>
+    MGba = 10,
+    /// <summary>OpenEmu (macOS): Battery Saves/&lt;System&gt;/*.sav under its Application Support folder.</summary>
+    OpenEmu = 11,
+    /// <summary>DeSmuME (desktop): .dsv battery saves in its Battery folder or beside the ROM.</summary>
+    DeSmuME = 12,
 }
 
 /// <summary>A persistable SAF folder grant, opaque to the domain layer.</summary>
@@ -57,6 +63,10 @@ public sealed record DetectedSave(
 public interface IFolderPicker
 {
     ValueTask<PickedFolder?> PickFolderAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Picks a folder for one emulator; desktop pickers open at its usual save location.</summary>
+    ValueTask<PickedFolder?> PickFolderAsync(EmulatorKind kind, CancellationToken cancellationToken = default) =>
+        PickFolderAsync(cancellationToken);
 }
 
 /// <summary>

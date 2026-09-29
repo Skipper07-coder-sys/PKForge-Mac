@@ -24,6 +24,8 @@ public sealed class LegalizerService : ILegalizerService
         // Our AutoMod is source-built against the exact same Core revision, so the
         // NuGet-version mismatch gate does not apply.
         APILegality.EnableDevMode = true;
+        // Unfixable mons must fail, not become the ALM's joke Pokémon (a shiny Stunfisk named PANCAKE).
+        Legalizer.EnableEasterEggs = false;
     }
 
     public GenerationOutcome Generate(ISaveEngineSession session, int box, int slot, GenerationRequest request)

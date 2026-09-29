@@ -39,7 +39,7 @@ public static class QrPopup
     {
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var path = System.IO.Path.Combine(FileSystem.CacheDirectory, "qr-latest.png");
+        var path = System.IO.Path.Combine(AppPaths.Cache, "qr-latest.png");
         using (var bitmap = new SKBitmap(matrix.Width, matrix.Height))
         {
             for (var y = 0; y < matrix.Height; y++)

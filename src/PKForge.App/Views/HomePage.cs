@@ -4,6 +4,12 @@ using PKForge.App.Theme;
 using PKForge.App.ViewModels;
 using PKForge.Domain;
 
+#if ANDROID
+using PlatformMusicPlayer = PKForge.App.Platforms.Android.MusicPlayer;
+#elif MACCATALYST
+using PlatformMusicPlayer = PKForge.App.Platforms.MacCatalyst.MusicPlayer;
+#endif
+
 namespace PKForge.App.Views;
 
 /// <summary>
@@ -146,6 +152,7 @@ public sealed class HomePage : ContentPage, IPadHandler
     /// </summary>
     private static void BlockNativeFocus(View view)
     {
+#if ANDROID
         view.HandlerChanged += (_, _) =>
         {
             if (view.Handler?.PlatformView is Android.Views.View platform)
@@ -154,6 +161,7 @@ public sealed class HomePage : ContentPage, IPadHandler
                 platform.FocusableInTouchMode = false;
             }
         };
+#endif
     }
 
     /// <summary>
@@ -162,6 +170,21 @@ public sealed class HomePage : ContentPage, IPadHandler
     /// </summary>
     private static void AttachLongPress(View view, Action onLongPress)
     {
+#if MACCATALYST
+        // Mac: hold the click, or right-click / two-finger click, for the same action.
+        view.HandlerChanged += (_, _) =>
+        {
+            if (view.Handler?.PlatformView is not UIKit.UIView platform) return;
+            platform.AddGestureRecognizer(new UIKit.UILongPressGestureRecognizer(recognizer =>
+            {
+                if (recognizer.State == UIKit.UIGestureRecognizerState.Began) onLongPress();
+            }));
+            platform.AddGestureRecognizer(new UIKit.UITapGestureRecognizer(() => onLongPress())
+            {
+                ButtonMaskRequired = UIKit.UIEventButtonMask.Secondary,
+            });
+        };
+#elif ANDROID
         view.HandlerChanged += (_, _) =>
         {
             if (view.Handler?.PlatformView is not Android.Views.View platform) return;
@@ -199,6 +222,7 @@ public sealed class HomePage : ContentPage, IPadHandler
                 }
             };
         };
+#endif
     }
 
     private bool _welcomeShown;
@@ -505,6 +529,27 @@ public sealed class HomePage : ContentPage, IPadHandler
                 new PadOption("Single save file", IconPath: "file"));
             if (platform is null) return;
             if (platform == "Single save file") { await LinkFileAsync(); return; }
+#if MACCATALYST
+            var options = platform switch
+            {
+                "Game Boy / Game Boy Color" or "Game Boy Advance" => new[]
+                {
+                    new PadOption("mGBA", IconPath: "storage"),
+                    new PadOption("OpenEmu", IconPath: "storage"),
+                    new PadOption("RetroArch", IconPath: "retroarch"),
+                },
+                "Nintendo DS" => new[]
+                {
+                    new PadOption("melonDS", IconPath: "melonds"),
+                    new PadOption("DeSmuME", IconPath: "storage"),
+                    new PadOption("OpenEmu", IconPath: "storage"),
+                    new PadOption("RetroArch", IconPath: "retroarch"),
+                },
+                "GameCube" => new[] { new PadOption("Dolphin", IconPath: "dolphin") },
+                "Nintendo 3DS" => new[] { new PadOption("Azahar / Lime3DS", IconPath: "azahar") },
+                _ => new[] { new PadOption("Eden", IconPath: "eden") },
+            };
+#else
             var options = platform switch
             {
                 "Game Boy / Game Boy Color" => new[]
@@ -533,21 +578,38 @@ public sealed class HomePage : ContentPage, IPadHandler
                 },
                 _ => new[] { new PadOption("Eden", IconPath: "eden") },
             };
+#endif
             var choice = await PadMenu.ShowAsync(_hostGrid, platform, null, options);
             if (choice is null) continue;
             var guidance = choice switch
             {
+#if MACCATALYST
+                "Dolphin" => "Save in game and stop emulation before editing Colosseum or XD. Select Dolphin's GC folder (~/Library/Application Support/Dolphin/GC), a region folder, or Card A / Card B containing .gci saves. For .raw memory cards, export the game as GCI with Dolphin's Memory Card Manager, or set that card slot to GCI Folder. After editing, start the game normally; loading an old save state can undo your edits.",
+                "Azahar / Lime3DS" => "Save in game and close the emulator. Select its user folder (~/Library/Application Support/Azahar, the one containing sdmc); sdmc or Nintendo 3DS also work. Restart the game normally after editing.",
+                "RetroArch" => "Save in game and close the content. Select RetroArch's saves folder (~/Library/Application Support/RetroArch/saves) or the RetroArch folder itself. Save states are not supported. Restart the game normally after editing.",
+                "mGBA" => "Save in game and close mGBA. Select the folder containing your .sav battery saves: next to your ROMs by default, or the save folder set in mGBA's settings. Save states are not supported. Restart the game normally after editing.",
+                "OpenEmu" => "Save in game and quit OpenEmu. Select its Battery Saves folder (~/Library/Application Support/OpenEmu/Battery Saves) or one system folder inside it. Save states are not supported: OpenEmu may offer to resume from an auto-save state, so choose to restart the game instead.",
+                "DeSmuME" => "Save in game and close DeSmuME. Select the folder containing your .dsv battery saves: DeSmuME's Battery folder or next to your ROMs. Save states are not supported. Restart the game normally after editing.",
+#endif
+#if !MACCATALYST
                 "Dolphin" => "Save in game and stop emulation before editing Colosseum or XD. Select Dolphin's GC folder, a region folder, or Card A / Card B containing .gci saves. For .raw memory cards, export the game as GCI with Dolphin's Memory Card Manager, or configure that card slot as GCI Folder. After editing, start the game normally; loading an old save state can undo your edits.",
+#endif
                 "DraStic" => "Save in game and close DraStic. Select its backup folder containing .dsv battery saves, or the DraStic data folder. Save states are not supported. Restart the game normally after editing.",
                 "Pizza Boy A (GBA)" or "Pizza Boy C (GB/GBC)" => "Save in game and close Pizza Boy. Select the folder containing its battery saves (.sav), not save states. If Android hides the folder, export the battery save in Pizza Boy and link that export. Import the edited export back into Pizza Boy, then restart the game normally.",
+#if !MACCATALYST
                 "Azahar / Lime3DS" => "Save in game and close the emulator. Select the user folder you chose in its setup (the one containing sdmc); sdmc, Nintendo 3DS or a folder above the user folder also work. Restart the game normally after editing.",
+#endif
                 "Citra MMJ" => "Save in game and close Citra MMJ. In the file picker open the Citra MMJ entry (or Android/data/org.citra.emu/files) and select citra-emu, or /citra-emu on older Android. Restart the game normally after editing.",
                 "Eden" => "Save in game and close the emulator. Select its files root containing the emulated storage. Restart the game normally after editing.",
                 "melonDS" => "Save in game and close melonDS. Select the folder containing your .sav battery saves: next to your ROMs by default, or the save folder set in melonDS's settings. Save states are not supported. Restart the game normally after editing.",
                 _ => "Save in game and close the emulator. Select its saves folder (or the folder containing your battery saves). Save states are not supported. Restart the game normally after editing.",
             };
             var proceed = await PadMenu.ShowAsync(_hostGrid, $"Link {choice}",
+#if ANDROID
                 guidance + " If Android does not offer access to the folder, use Single save file with an exported save.",
+#else
+                guidance,
+#endif
                 new PadOption("Choose folder", IconPath: "folder"), new PadOption("Back", IconPath: "back"));
             if (proceed != "Choose folder") continue;
             switch (choice)
@@ -562,6 +624,9 @@ public sealed class HomePage : ContentPage, IPadHandler
                 case "DraStic": await _viewModel.AddDraSticCommand.ExecuteAsync(null); break;
                 case "Pizza Boy A (GBA)": await _viewModel.AddPizzaBoyGbaCommand.ExecuteAsync(null); break;
                 case "Pizza Boy C (GB/GBC)": await _viewModel.AddPizzaBoyGbcCommand.ExecuteAsync(null); break;
+                case "mGBA": await _viewModel.AddMGbaCommand.ExecuteAsync(null); break;
+                case "OpenEmu": await _viewModel.AddOpenEmuCommand.ExecuteAsync(null); break;
+                case "DeSmuME": await _viewModel.AddDeSmuMECommand.ExecuteAsync(null); break;
             }
             return;
         }
@@ -687,7 +752,7 @@ public sealed class HomePage : ContentPage, IPadHandler
         }
         catch (Exception error)
         {
-            Android.Util.Log.Warn("PKForgeUpdate", $"Automatic update check failed: {error}");
+            App.Trace($"PKForgeUpdate: automatic update check failed: {error}");
             if (!automatic)
                 _viewModel.Status = $"Update check failed: {error.Message}";
             return;
@@ -743,7 +808,7 @@ public sealed class HomePage : ContentPage, IPadHandler
         }
         catch (Exception error)
         {
-            Android.Util.Log.Error("PKForgeUpdate", $"Download/install failed: {error}");
+            App.Trace($"PKForgeUpdate: download/install failed: {error}");
             _viewModel.Status = $"Update failed: {error.Message}";
             var openRelease = await PadMenu.ConfirmAsync(_hostGrid, "Open the release page?",
                 "The in-app installer could not finish. The GitHub release page has the same APK.", "Open");
@@ -785,11 +850,11 @@ public sealed class HomePage : ContentPage, IPadHandler
         {
             var order = music.Order == Domain.MusicOrder.Shuffle ? "Shuffle" : "In order";
             var auto = music.Autostart ? "ON" : "OFF";
-            var androidMusic = music as Platforms.Android.MusicPlayer;
+            var platformMusic = music as PlatformMusicPlayer;
             var playing = music.IsPlaying
                 ? $"Playing: {music.Library[music.CurrentIndex ?? 0].Title}"
                 : $"Library: {music.Library.Count} track(s)";
-            if (androidMusic?.LastError is { } err)
+            if (platformMusic?.LastError is { } err)
                 playing += $"\nLast error: {err}";
             var choice = await PadMenu.ShowAsync(_hostGrid, "Background music", playing,
                 new PadOption(music.IsPlaying ? "Pause" : "Play", IconPath: music.IsPlaying ? "pause" : "play"),

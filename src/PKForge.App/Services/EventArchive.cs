@@ -40,7 +40,7 @@ public static class EventArchive
 
     private static string Extract(int generation)
     {
-        var target = Path.Combine(FileSystem.CacheDirectory, "events", $"g{generation}");
+        var target = Path.Combine(AppPaths.Cache, "events", $"g{generation}");
         if (Directory.Exists(target) && Directory.EnumerateFiles(target, "*", SearchOption.AllDirectories).Any())
             return target;
         Directory.CreateDirectory(target);

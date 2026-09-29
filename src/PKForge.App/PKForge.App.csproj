@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0-android</TargetFramework>
+    <TargetFrameworks>net10.0-android</TargetFrameworks>
+    <!-- The Mac build needs Xcode, so it is only offered on macOS; Linux/Windows CI stays Android-only. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(TargetFrameworks);net10.0-maccatalyst</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <RootNamespace>PKForge.App</RootNamespace>
     <UseMaui>true</UseMaui>
@@ -12,7 +14,22 @@
     <ApplicationTitle>PKForge</ApplicationTitle>
     <ApplicationVersion>302</ApplicationVersion>
     <ApplicationDisplayVersion>3.0.2</ApplicationDisplayVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-android'">
     <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-maccatalyst'">
+    <SupportedOSPlatformVersion>16.0</SupportedOSPlatformVersion>
+    <RuntimeIdentifiers>maccatalyst-arm64;maccatalyst-x64</RuntimeIdentifiers>
+    <CodesignEntitlements>Platforms/MacCatalyst/Entitlements.plist</CodesignEntitlements>
+    <!-- Local ad-hoc signing; no Apple developer account required. -->
+    <CodesignKey>-</CodesignKey>
+    <EnableCodeSigning>true</EnableCodeSigning>
+    <MtouchLink>SdkOnly</MtouchLink>
+    <!-- The workload pins an exact Xcode; newer Xcode builds this fine. -->
+    <ValidateXcodeVersion>false</ValidateXcodeVersion>
+    <!-- The Mac Catalyst runtime has no ICU, and hybrid mode throws on PKHeX's IgnoreSymbols/IgnoreNonSpace name matching (Legalize, Showdown import). Invariant mode compares without throwing. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(DiagnosticBuild)' == 'true'">
     <!-- Diagnostic builds install beside production and cannot overwrite its app-private data. -->
@@ -35,7 +52,8 @@
   </ItemGroup>
   <ItemGroup>
     <AndroidLinkDescription Include="Platforms/Android/linker.xml" />
-    <MauiIcon Include="Resources/AppIcon/pkforge.png" Color="#14121D" />
+    <MauiIcon Include="Resources/AppIcon/pkforge.png" Color="#14121D" Condition="'$(TargetFramework)' != 'net10.0-maccatalyst'" />
+    <!-- Mac: a hand-made icon set with every macOS size, in Platforms/MacCatalyst/Assets.xcassets. -->
     <MauiSplashScreen Include="Resources/Splash/splash.png" Color="#14121D" BaseSize="180,180" />
     <MauiFont Include="Resources/Fonts/*.ttf" />
   </ItemGroup>

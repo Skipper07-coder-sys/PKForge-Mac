@@ -259,6 +259,11 @@ public sealed class PokeparkPage : ContentPage, IPadHandler
 
     private async Task PublishWidgetAsync()
     {
+#if !ANDROID
+        // Home-screen widgets are Android-only; nothing to publish to.
+        Volatile.Write(ref _publishedWidgetRevision, Volatile.Read(ref _widgetRevision));
+        await Task.CompletedTask;
+#else
         if (!PokeparkWidgetPublisher.HasActiveWidgets())
         {
             Volatile.Write(ref _publishedWidgetRevision, Volatile.Read(ref _widgetRevision));
@@ -289,6 +294,7 @@ public sealed class PokeparkPage : ContentPage, IPadHandler
             Volatile.Write(ref _publishedWidgetRevision, revision);
         }
         finally { _widgetPublishGate.Release(); }
+#endif
     }
 
     private async Task OptionsAsync()

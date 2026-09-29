@@ -191,8 +191,21 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
         });
     }
 
+    /// <summary>Mutate → serialize → write sequences run one at a time: a delayed item flush or a
+    /// second Save click must never interleave with a write in flight on the same live session.</summary>
+    private readonly SemaphoreSlim _mutationGate = new(1, 1);
+
+    private async Task<T> ExclusiveAsync<T>(Func<Task<T>> body)
+    {
+        await _mutationGate.WaitAsync();
+        try { return await body(); }
+        finally { _mutationGate.Release(); }
+    }
+
     [RelayCommand]
-    private async Task SaveEditAsync()
+    private Task SaveEditAsync() => ExclusiveAsync(async () => { await SaveEditCoreAsync(); return true; });
+
+    private async Task SaveEditCoreAsync()
     {
         if (IsBusy) return;
         // The editor's APPLY path writes outside RunMutationAsync (it edits the live
@@ -416,8 +429,12 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
     /// Hardcore mode is enforced here, at the one funnel every save write passes through:
     /// a refused <paramref name="action"/> skips the operation entirely - so nothing is
     /// even staged in the live session - and shows the reason instead of writing.</summary>
-    public async Task<bool> RunMutationAsync(Func<ISaveEngineSession, GenerationOutcome> operation, int slot,
-        bool refreshSlot = true, string? changeDescription = null, SaveAction action = SaveAction.EditMon)
+    public Task<bool> RunMutationAsync(Func<ISaveEngineSession, GenerationOutcome> operation, int slot,
+        bool refreshSlot = true, string? changeDescription = null, SaveAction action = SaveAction.EditMon) =>
+        ExclusiveAsync(() => RunMutationCoreAsync(operation, slot, refreshSlot, changeDescription, action));
+
+    private async Task<bool> RunMutationCoreAsync(Func<ISaveEngineSession, GenerationOutcome> operation, int slot,
+        bool refreshSlot, string? changeDescription, SaveAction action)
     {
         if (HardcoreMode.Blocks(action, out var hardcoreStatus))
         {
@@ -793,7 +810,9 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
     }
 
     /// <summary>Drops the carried mon on the cursor slot (move or swap), writing safely at once.</summary>
-    public async Task DropAsync()
+    public Task DropAsync() => ExclusiveAsync(async () => { await DropCoreAsync(); return true; });
+
+    private async Task DropCoreAsync()
     {
         var engineSession = _sessions.CurrentSession;
         var session = _sessions.Current;

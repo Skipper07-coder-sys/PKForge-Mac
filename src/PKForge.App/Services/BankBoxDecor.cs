@@ -8,7 +8,7 @@ public static class BankBoxDecor
     private static readonly Lazy<BankBoxNames> LazyNames = new(() => new BankBoxNames(Root));
     private static readonly Lazy<BankBoxWallpapers> LazyWallpapers = new(() => new BankBoxWallpapers(Root));
 
-    private static string Root => Path.Combine(FileSystem.AppDataDirectory, "bank");
+    private static string Root => Path.Combine(AppPaths.Data, "bank");
 
     public static BankBoxNames Names => LazyNames.Value;
 

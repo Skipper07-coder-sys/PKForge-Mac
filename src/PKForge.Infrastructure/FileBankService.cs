@@ -102,7 +102,10 @@ public sealed class FileBankService : IBankService
             var index = _entries.FindIndex(e => e.Id == id);
             if (index < 0) throw new InvalidOperationException("Unknown bank entry.");
             EnsureWritable();
-            File.WriteAllBytes(DataPath(id), data);
+            var path = DataPath(id);
+            var tmp = path + ".tmp";
+            File.WriteAllBytes(tmp, data);
+            File.Move(tmp, path, overwrite: true);
             Commit(() =>
             {
                 _entries[index] = _entries[index] with { Info = info };
@@ -344,9 +347,16 @@ public sealed class FileBankService : IBankService
         var json = JsonSerializer.Serialize(new IndexFile(_boxCount, _entries, _migrationVersion));
         var tmp = IndexPath + ".tmp";
         File.WriteAllText(tmp, json);
-        if (File.Exists(IndexPath))
+        if (File.Exists(IndexPath) && IsParsable(IndexPath))
             File.Copy(IndexPath, IndexPath + ".bak", overwrite: true);
         File.Move(tmp, IndexPath, overwrite: true);
+    }
+
+    // A corrupt current index must never replace a good .bak.
+    private static bool IsParsable(string path)
+    {
+        try { return JsonSerializer.Deserialize<IndexFile>(File.ReadAllText(path)) is not null; }
+        catch { return false; }
     }
 
     private (List<BankEntry>, int, int, bool Unreadable) LoadIndex()

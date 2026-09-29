@@ -157,7 +157,8 @@ public static class PartyView
             var tag = new SKRect(r.Right - 62, r.Top + 6, r.Right - 8, r.Top + 24);
             canvas.DrawRoundRect(tag, 4, 4, previewTag);
             using var tagFont = new SKFont(PixelFont.Face, 13) { Edging = SKFontEdging.Antialias, Embolden = true };
-            canvas.DrawText("A SWAP", tag.MidX, tag.Bottom - 5, SKTextAlign.Center, tagFont, new SKPaint { Color = SKColors.White, IsAntialias = true });
+            using var tagInk = new SKPaint { Color = SKColors.White, IsAntialias = true };
+            canvas.DrawText("A SWAP", tag.MidX, tag.Bottom - 5, SKTextAlign.Center, tagFont, tagInk);
         }
         if (selected && !ghost && !lifted)
         {
@@ -217,7 +218,10 @@ public static class PartyView
         var ballSize = r.Height * 0.16f;
         var ballY = r.Top + r.Height * 0.4f;
         if (ball is not null)
-            canvas.DrawBitmap(ball, new SKRect(tx, ballY, tx + ballSize, ballY + ballSize), new SKPaint());
+        {
+            using var ballPaint = new SKPaint();
+            canvas.DrawBitmap(ball, new SKRect(tx, ballY, tx + ballSize, ballY + ballSize), ballPaint);
+        }
         else
             sprites.WarmBall(detail.Ball, invalidate);
         using (var fg = new SKPaint { Color = fainted ? FaintLv : LvColor, IsAntialias = true })

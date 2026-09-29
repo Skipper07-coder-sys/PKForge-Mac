@@ -15,7 +15,8 @@ public sealed class SafeSaveWriter(
 
     // The layout verdict depends only on the file's bytes, and analysing it re-parses and
     // round-trips the whole save; it is kept per document for the exact bytes it judged.
-    private readonly Dictionary<string, (byte[] Bytes, LayoutRisk? Risk)> _layoutVerdicts = new(StringComparer.Ordinal);
+    // Keyed by save; a SHA-256 of the bytes (not a copy) so a long session never pins whole saves.
+    private readonly Dictionary<string, (byte[] Hash, LayoutRisk? Risk)> _layoutVerdicts = new(StringComparer.Ordinal);
 
     /// <summary>Accepts the suspected-hack risk for this session and, with an identity
     /// store, for good. A corrupting layout is never lifted.</summary>
@@ -74,11 +75,11 @@ public sealed class SafeSaveWriter(
     {
         lock (_gate)
         {
-            if (_layoutVerdicts.TryGetValue(documentId, out var cached) && bytes.Span.SequenceEqual(cached.Bytes))
+            if (_layoutVerdicts.TryGetValue(documentId, out var cached) && System.Security.Cryptography.SHA256.HashData(bytes.Span).AsSpan().SequenceEqual(cached.Hash))
                 return cached.Risk;
         }
         var risk = engine.AssessLayoutRisk(bytes);
-        lock (_gate) _layoutVerdicts[documentId] = (bytes.ToArray(), risk);
+        lock (_gate) _layoutVerdicts[documentId] = (System.Security.Cryptography.SHA256.HashData(bytes.Span), risk);
         return risk;
     }
 
@@ -102,7 +103,30 @@ public sealed class SafeSaveWriter(
         return WriteCoreAsync(documentId, original, candidate, scope, changeDescription, cancellationToken);
     }
 
+    /// <summary>One write at a time: the disk-matches-snapshot check and the write it guards must not
+    /// interleave with another write (an item flush racing a Save, the Autopilot racing an edit).</summary>
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
+
     private async ValueTask<SaveWriteReceipt> WriteCoreAsync(
+        string documentId,
+        SaveSnapshot original,
+        ReadOnlyMemory<byte> candidate,
+        WriteScope? scope,
+        string? changeDescription,
+        CancellationToken cancellationToken)
+    {
+        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await WriteExclusiveAsync(documentId, original, candidate, scope, changeDescription, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    private async ValueTask<SaveWriteReceipt> WriteExclusiveAsync(
         string documentId,
         SaveSnapshot original,
         ReadOnlyMemory<byte> candidate,
@@ -147,7 +171,7 @@ public sealed class SafeSaveWriter(
         lock (_gate)
         {
             if (_layoutVerdicts.TryGetValue(documentId, out var verdict))
-                _layoutVerdicts[documentId] = (candidate.ToArray(), verdict.Risk);
+                _layoutVerdicts[documentId] = (System.Security.Cryptography.SHA256.HashData(candidate.Span), verdict.Risk);
         }
 
         return new SaveWriteReceipt(

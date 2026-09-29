@@ -18,6 +18,9 @@ public static class MauiProgram
         App.Trace("CreateMauiApp enter");
 #if ANDROID
         Views.CapsuleSkin.Register();
+#elif MACCATALYST
+        Views.CapsuleSkin.Register();
+        MacLayoutFixes.Register();
 #endif
         builder.UseMauiApp<App>().UseSkiaSharp()
             .ConfigureFonts(fonts =>
@@ -37,10 +40,10 @@ public static class MauiProgram
         builder.Services.AddSingleton<IEventDatabaseService, EventDatabaseService>();
         builder.Services.AddSingleton<IEncounterLookup, EncounterLookupService>();
         builder.Services.AddSingleton<IBackupService>(_ =>
-            new FileBackupService(Path.Combine(FileSystem.AppDataDirectory, "backups")));
+            new FileBackupService(Path.Combine(AppPaths.Data, "backups")));
         builder.Services.AddSingleton<IBankService>(sp =>
         {
-            var bank = new FileBankService(Path.Combine(FileSystem.AppDataDirectory, "bank"));
+            var bank = new FileBankService(Path.Combine(AppPaths.Data, "bank"));
             // One-time index migration, off the UI thread: legacy entries get their exact format
             // (only when provable) and sprite traits recorded, then the index is marked so no
             // entry is read again on later launches. Concurrent bank edits are never undone.
@@ -52,9 +55,9 @@ public static class MauiProgram
             return bank;
         });
         builder.Services.AddSingleton<InjectedGiftHistory>(_ =>
-            new InjectedGiftHistory(Path.Combine(FileSystem.AppDataDirectory, "injected-gifts.json")));
+            new InjectedGiftHistory(Path.Combine(AppPaths.Data, "injected-gifts.json")));
         builder.Services.AddSingleton<ISaveIdentityStore>(_ =>
-            new JsonSaveIdentityStore(Path.Combine(FileSystem.AppDataDirectory, "save-identities.json")));
+            new JsonSaveIdentityStore(Path.Combine(AppPaths.Data, "save-identities.json")));
         builder.Services.AddSingleton<ISaveSessionService>(sp => new SaveSessionService(
             sp.GetRequiredService<ISaveFileAccess>(), sp.GetRequiredService<ISaveEngine>(),
             sp.GetRequiredService<ISaveIdentityStore>()));
@@ -90,6 +93,17 @@ public static class MauiProgram
         builder.Services.AddSingleton<IFolderPicker, AndroidFolderPicker>();
         builder.Services.AddSingleton<IFolderFileAccess, AndroidFolderFileAccess>();
         builder.Services.AddSingleton<IEmulatorDetectionService, AndroidEmulatorScanner>();
+#elif MACCATALYST
+        builder.Services.AddSingleton<MacFileAccess>();
+        builder.Services.AddSingleton<ISaveFileAccess>(sp => sp.GetRequiredService<MacFileAccess>());
+        builder.Services.AddSingleton<IFolderFileAccess>(sp => sp.GetRequiredService<MacFileAccess>());
+        builder.Services.AddSingleton<MacPickers>();
+        builder.Services.AddSingleton<IDocumentPicker>(sp => sp.GetRequiredService<MacPickers>());
+        builder.Services.AddSingleton<IFolderPicker>(sp => sp.GetRequiredService<MacPickers>());
+        builder.Services.AddSingleton<Platforms.MacCatalyst.MusicPlayer>();
+        builder.Services.AddSingleton<IMusicPlayer>(sp => sp.GetRequiredService<Platforms.MacCatalyst.MusicPlayer>());
+        builder.Services.AddSingleton<ISecondaryDisplayHost, MacSecondaryDisplayHost>();
+        builder.Services.AddSingleton<IEmulatorDetectionService, MacEmulatorScanner>();
 #endif
         builder.Services.AddSingleton<IWatchedRootStore, PreferencesWatchedRootStore>();
         builder.Services.AddSingleton<BoxBrowserViewModel>();

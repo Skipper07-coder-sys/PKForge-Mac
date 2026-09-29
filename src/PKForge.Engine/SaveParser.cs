@@ -19,7 +19,12 @@ internal static class SaveParser
     {
         data = RetroArchSaveContainer.Decode(data);
         if (SaveUtil.TryGetSaveFile(data, out save))
+        {
+            // A Colosseum file that fails its checksums is a wrong or damaged GCI (PKHeX decrypts
+            // it to noise), not a save: opening it would show garbage and invite a corrupting write.
+            if (save is SAV3Colosseum { ChecksumsValid: false }) { save = null; return false; }
             return true;
+        }
 
         // Emulator SRAM dumps carry trailing padding (VBA-M appends 8 KB of 0xFF, and
         // the flash's erased tail adds more), which PKHeX's exact-size check rejects.
