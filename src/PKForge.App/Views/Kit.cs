@@ -755,14 +755,16 @@ public static class Kit
     }
 
     /// <summary>
-    /// For a window whose list fills a Star row. UIKit's list reports no height of its own, so
-    /// a window sized to its content left the list none (an empty picker on Mac and iPhone): on
-    /// Apple platforms the window takes its full capped height instead. Android lists report theirs.
+    /// For a window whose list fills a Star cell. UIKit's list reports no size of its own, so a
+    /// window sized to its content left the list none: no height (an empty picker on Mac and
+    /// iPhone), and beside a preview card no width (a sliver of clipped rows). On Apple platforms
+    /// the window takes its full capped size instead. Android lists report theirs.
     /// </summary>
     public static void GiveListRoom(Border window)
     {
 #if MACCATALYST || IOS
         window.HeightRequest = window.MaximumHeightRequest;
+        window.WidthRequest = window.MaximumWidthRequest;
 #endif
     }
 
