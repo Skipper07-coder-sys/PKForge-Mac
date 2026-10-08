@@ -97,6 +97,44 @@ internal sealed class TouchScroller
 
     public void Stop() => _fling?.Stop();
 
+    /// <summary>A scroll wheel or trackpad step, in the caller's units: moves the list and shows the thumb.</summary>
+    public void Wheel(float delta)
+    {
+        Stop();
+        Touched();
+        _scrollTo(Math.Clamp(_offset() + delta, 0, _max()));
+    }
+
+    /// <summary>
+    /// Lets a trackpad or mouse wheel scroll <paramref name="canvas"/> too (Mac, iPad with a
+    /// trackpad). Those arrive as scroll events, never touches, so the canvas did not see them: a
+    /// pan recognizer that takes scrolls only (no touch, so clicks and drags are untouched) feeds
+    /// them in, converted from points to the caller's units (<paramref name="pixels"/>: canvas pixels).
+    /// </summary>
+    public void AttachWheel(SkiaSharp.Views.Maui.Controls.SKCanvasView canvas, bool pixels)
+    {
+#if MACCATALYST || IOS
+        void Hook()
+        {
+            if (canvas.Handler?.PlatformView is not UIKit.UIView view) return;
+            view.AddGestureRecognizer(new UIKit.UIPanGestureRecognizer(pan =>
+            {
+                if (pan.State is not (UIKit.UIGestureRecognizerState.Began or UIKit.UIGestureRecognizerState.Changed)) return;
+                var moved = (float)pan.TranslationInView(view).Y;
+                pan.SetTranslation(CoreGraphics.CGPoint.Empty, view);
+                var units = pixels && view.Bounds.Height > 0 ? canvas.CanvasSize.Height / (float)view.Bounds.Height : 1;
+                Wheel(-moved * units);
+            })
+            {
+                AllowedScrollTypesMask = UIKit.UIScrollTypeMask.All,
+                AllowedTouchTypes = [],
+            });
+        }
+        canvas.HandlerChanged += (_, _) => Hook();
+        Hook();
+#endif
+    }
+
     /// <summary>Feeds one touch event; returns the point of a tap (a press released without dragging).</summary>
     public SKPoint? Handle(SKTouchAction action, SKPoint point)
     {

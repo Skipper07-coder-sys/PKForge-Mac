@@ -102,7 +102,19 @@ public sealed class PickerMenu : IPadHandler
         search.TextChanged += (_, args) =>
         {
             _query = args.NewTextValue ?? "";
+#if MACCATALYST || IOS
+            // UIKit's list showed rows from an earlier filter when rebuilt on every keystroke (a
+            // stale "Lemonade" under "lef"): it rebuilds once typing pauses. Keys flush it first.
+            _typing ??= search.Dispatcher.CreateTimer();
+            _typing.Interval = TimeSpan.FromMilliseconds(120);
+            _typing.IsRepeating = false;
+            _typing.Tick -= OnTypingPaused;
+            _typing.Tick += OnTypingPaused;
+            _typing.Stop();
+            _typing.Start();
+#else
             Refilter(keepId: null);
+#endif
         };
 
         // The filter chip rides beside the search box; Y toggles it on the pad.
@@ -233,7 +245,8 @@ public sealed class PickerMenu : IPadHandler
         {
             // A dropdown, not a dialog: nothing dims, and typing filters at once (↑ ↓ Return Esc still drive the list).
             if (_overlay.Children.FirstOrDefault() is BoxView scrim) scrim.Color = Colors.Transparent;
-            search.Dispatcher.Dispatch(() => search.Focus());
+            // A beat later: a menu that opened this one may still be closing and take the cursor back.
+            search.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(150), () => search.Focus());
         }
         else search.Unfocus(); // the pad drives first; touch users tap the box to type
 
@@ -414,8 +427,21 @@ public sealed class PickerMenu : IPadHandler
         HighlightCurrent();
     }
 
+    private IDispatcherTimer? _typing;
+
+    private void OnTypingPaused(object? sender, EventArgs e) => FlushTyping();
+
+    /// <summary>Applies a search still waiting for typing to pause, so keys act on what was typed.</summary>
+    private void FlushTyping()
+    {
+        if (_typing is not { IsRunning: true }) return;
+        _typing.Stop();
+        Refilter(keepId: null);
+    }
+
     public bool OnPadButton(PadButton button)
     {
+        FlushTyping();
         switch (button)
         {
             case PadButton.Up: Move(-1); return true;

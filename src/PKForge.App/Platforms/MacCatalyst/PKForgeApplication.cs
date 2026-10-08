@@ -52,6 +52,9 @@ public sealed class PKForgeApplication : UIApplication
 
     private static bool TextInputFocused() => FocusedTextInput() is not null;
 
+    /// <summary>True while a picker's search box has the cursor.</summary>
+    public static bool PickerSearchFocused() => FocusedTextInput() is { } field && PadKeysWhileTyping.IsMarked(field);
+
     private static UIView? FocusedTextInput()
     {
         foreach (var scene in SharedApplication.ConnectedScenes.ToArray<UIScene>())

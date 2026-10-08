@@ -466,6 +466,7 @@ public static class EventGallery
             // Drag, flick with momentum, and a thumb you can grab: the album is long.
             _scroller = new TouchScroller(_list.Dispatcher, () => _scroll, offset => { _scroll = offset; _list.InvalidateSurface(); },
                 () => Math.Max(0, _contentH - _viewH), () => _viewH, () => _track, slop: 8, grabWidth: 28);
+            _scroller.AttachWheel(_list, pixels: false);
 
             _preview = new SKCanvasView { EnableTouchEvents = true };
             _preview.PaintSurface += PaintPreview;

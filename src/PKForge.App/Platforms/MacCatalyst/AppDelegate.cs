@@ -73,6 +73,31 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
     }
 #endif
 
+    // On the Mac key presses never pass through PKForgeApplication, and a text field takes Esc
+    // for itself (it clears). While a picker's search box has the cursor this command takes Esc
+    // first, with priority over that, so Esc closes the picker as it does everywhere else.
+    private static readonly ObjCRuntime.Selector PickerEscapeSelector = new("pkfPickerEscape:");
+
+    public override UIKeyCommand[] KeyCommands
+    {
+        get
+        {
+            var escape = UIKeyCommand.Create(UIKeyCommand.Escape, 0, PickerEscapeSelector);
+            escape.WantsPriorityOverSystemBehavior = true;
+            return [escape];
+        }
+    }
+
+    public override bool CanPerform(ObjCRuntime.Selector action, NSObject? withSender) =>
+        action == PickerEscapeSelector ? PKForgeApplication.PickerSearchFocused() : base.CanPerform(action, withSender);
+
+    [Export("pkfPickerEscape:")]
+    private void PickerEscape(NSObject? sender)
+    {
+        MacPadInput.Press(PKForge.App.Services.PadButton.B);
+        MacPadInput.Release(PKForge.App.Services.PadButton.B);
+    }
+
     // Keys reach the delegate only when no text field took them, so typing a nickname
     // never moves the cursor around the box. ⌘ shortcuts always go to the system.
     public override void PressesBegan(NSSet<UIPress> presses, UIPressesEvent evt)

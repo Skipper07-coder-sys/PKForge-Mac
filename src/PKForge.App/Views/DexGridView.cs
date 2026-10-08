@@ -55,6 +55,7 @@ public sealed class DexGridView : SKCanvasView
         // Drag, flick with momentum, and a thumb you can grab, in canvas pixels.
         _scroller = new TouchScroller(Dispatcher, () => _scroll, ScrollTo, () => MaxScroll, () => CanvasSize.Height, Track,
             slop: 10 * _unit, grabWidth: 40 * _unit);
+        _scroller.AttachWheel(this, pixels: true);
     }
 
     /// <summary>The scrollbar's track along the right edge, in canvas pixels.</summary>
