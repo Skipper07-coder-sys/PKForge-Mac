@@ -176,13 +176,22 @@ public sealed class HomePage : ContentPage, IPadHandler
         view.HandlerChanged += (_, _) =>
         {
             if (view.Handler?.PlatformView is not UIKit.UIView platform) return;
-            platform.AddGestureRecognizer(new UIKit.UILongPressGestureRecognizer(recognizer =>
+            var hold = new UIKit.UILongPressGestureRecognizer(recognizer =>
             {
                 if (recognizer.State == UIKit.UIGestureRecognizerState.Began) onLongPress();
-            }));
+            });
+            platform.AddGestureRecognizer(hold);
+            // A click or tap opens; it waits for the hold to fail, so a long press never also opens.
+            var tap = new UIKit.UITapGestureRecognizer(() => onTap());
+            tap.RequireGestureRecognizerToFail(hold);
+            platform.AddGestureRecognizer(tap);
             platform.AddGestureRecognizer(new UIKit.UITapGestureRecognizer(() => onLongPress())
             {
                 ButtonMaskRequired = UIKit.UIEventButtonMask.Secondary,
+#if IOS
+                // iOS ignores the button mask for a finger, so every tap matched: right-click on a trackpad or mouse only.
+                AllowedTouchTypes = [new Foundation.NSNumber((long)UIKit.UITouchType.IndirectPointer)],
+#endif
             });
         };
 #elif ANDROID
