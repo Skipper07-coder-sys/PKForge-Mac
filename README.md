@@ -29,6 +29,9 @@ checks and one-tap legalize work offline.
 > `local-fixes`) brings the Mac port up to **PKForge 3.1.0** and adds:
 > - builds with Xcode 27 (no Android workload needed; macOS 14 or later)
 > - one window by default: the second screen is optional (**⌘2**, or Settings ▸ Misc ▸ Second screen)
+> - pickers (items, moves, species…) drop down under the field you click and filter as you type
+>   (↑ ↓ to move, Return to pick, Esc to close)
+> - an experimental single-screen iPhone/iPad build: `tools/build-ios.sh` (simulator or device)
 
 Not affiliated with Nintendo, Game Freak, or The Pokémon Company.
 
