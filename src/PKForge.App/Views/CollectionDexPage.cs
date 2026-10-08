@@ -2,6 +2,7 @@ using PKForge.App.Services;
 using PKForge.App.Theme;
 using PKForge.App.ViewModels;
 using PKForge.Domain;
+using PKForge.Engine;
 using PKForge.Chrome;
 using SkiaSharp;
 using SkiaSharp.Views.Maui;
@@ -15,14 +16,12 @@ namespace PKForge.App.Views;
 /// by dex flags. Normal living dex and shiny living dex each get their own view;
 /// per-generation scopes show how far each era is, and the "this game" scope matches
 /// the open save. A missing species can jump straight into "How to get" to plan the
-/// catch. Read-only: nothing here writes a save or the bank.
+/// catch. The forms view lists every collectible form (Unown letters, Vivillon patterns,
+/// regional forms...) of the species that have several, missing ones as silhouettes.
+/// Read-only: nothing here writes a save or the bank.
 /// </summary>
 public sealed class CollectionDexPage : IPadPagingHandler
 {
-    private const int Columns = BoxGridRenderer.Columns;
-    private const int Rows = BoxGridRenderer.Rows;
-    private const int PageSize = Columns * Rows;
-
     private readonly TaskCompletionSource<bool> _result = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Grid _host;
     private readonly Grid _overlay;
@@ -31,11 +30,18 @@ public sealed class CollectionDexPage : IPadPagingHandler
     private readonly ISaveEngineSession? _session;
     private readonly IGameDataService _data;
     private readonly ISpriteService _sprites;
+    // Cells are keys: species in the low 16 bits, form above (form 0 = the species itself).
     private readonly HashSet<int> _owned = [];
     private readonly HashSet<int> _shiny = [];
+    private readonly HashSet<int> _ownedForms = [];
+    private readonly HashSet<int> _shinyForms = [];
     private readonly List<int> _allIds = [];
+    private readonly List<int> _formIds = [];
     private readonly List<int> _viewIds = [];
-    private readonly SKCanvasView _canvas;
+    private Func<int, int, bool>? _storableHere;
+    private readonly DexGridView _grid;
+    private readonly SecondScreenState? _secondState;
+    private readonly SecondScreenClaim? _secondClaim;
     private readonly Label _title;
     private readonly Label _progress;
     private readonly Label _cursorInfo;
@@ -44,10 +50,9 @@ public sealed class CollectionDexPage : IPadPagingHandler
     private CollectionDexProgress? _progressData;
     private int? _genScope;          // null = all generations; 0 = this game
     private bool _shinyDex;
+    private bool _formsDex;
     private bool _missingOnly;
     private bool _loaded;
-    private int _page;
-    private int _cursor;
 
     public static async Task ShowAsync(Grid host, BoxBrowserViewModel viewModel, IGameDataService data, ISpriteService sprites)
     {
@@ -78,16 +83,23 @@ public sealed class CollectionDexPage : IPadPagingHandler
         _progress = new Label { TextColor = UiTokens.Ink1, FontFamily = DsChrome.PixelFont, FontSize = UiTokens.TextBody, HorizontalTextAlignment = TextAlignment.End, HorizontalOptions = LayoutOptions.End };
         _cursorInfo = new Label { TextColor = UiTokens.Ink1, FontFamily = DsChrome.PixelFont, FontSize = UiTokens.TextBody };
 
-        _canvas = new SKCanvasView { EnableTouchEvents = true, VerticalOptions = LayoutOptions.Fill };
-        _canvas.PaintSurface += Paint;
-        _canvas.Touch += Touch;
+        _grid = new DexGridView(sprites) { VerticalOptions = LayoutOptions.Fill };
+        _grid.Tapped += index => { _ = ShowActionsAsync(); };
+        // The second screen shows the Pokédex page of the species under the cursor.
+        _secondState = IPlatformApplication.Current?.Services.GetService<SecondScreenState>();
+        _secondClaim = _secondState?.Routes.OpenOverlay(SecondScreenOwner.Pokedex);
+        _grid.CursorChanged += index =>
+        {
+            RefreshCursorInfo();
+            if (_secondState is not null && index < _viewIds.Count) _secondState.PreviewSpecies = SpeciesOf(_viewIds[index]);
+        };
 
         _chips = new HorizontalStackLayout { Spacing = 5 };
 
         View hints = Kit.WindowHints(
             ("A", "Actions", () => _ = ShowActionsAsync()),
             ("B", "Done", () => Close()),
-            ("LR", "Page", null),
+            ("LR", "Generation", () => OnPadButton(PadButton.R)),
             ("X", "Scope", () => _ = ShowScopeMenuAsync()),
             ("Y", "Missing only", ToggleMissingOnly),
             ("+", "Autopilot", () => _ = OpenAutopilotAsync()));
@@ -99,19 +111,15 @@ public sealed class CollectionDexPage : IPadPagingHandler
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)],
             Children =
             {
-                new Grid
-                {
-                    ColumnDefinitions = [new(GridLength.Star), new(GridLength.Star)],
-                    Children = { _title, _progress },
-                },
+                TitleRow(),
                 _chips,
-                _canvas,
+                _grid,
                 _cursorInfo,
                 hints,
             },
         };
         Grid.SetRow(_chips, 1);
-        Grid.SetRow(_canvas, 2);
+        Grid.SetRow(_grid, 2);
         Grid.SetRow(_cursorInfo, 3);
         Grid.SetRow(hints, 4);
 
@@ -132,6 +140,8 @@ public sealed class CollectionDexPage : IPadPagingHandler
         _ = Task.Run(async () =>
         {
             var collection = await CollectAsync(_session);
+            var catalog = LivingDexCatalogBuilder.Build();
+            var storable = _session is null ? null : LivingDexCatalogBuilder.StorableIn(_session);
 
             // National scope: the bank spans every generation, so the tracker always
             // counts all nine; "this game" is only a view filter (RefreshView).
@@ -140,6 +150,9 @@ public sealed class CollectionDexPage : IPadPagingHandler
                 Apply(collection);
                 _allIds.AddRange(Enumerable.Range(1, Math.Min(CollectionDex.MaxSpecies, _data.SpeciesNames.Count - 1))
                     .Where(id => _data.SpeciesNames[id].Length > 0));
+                _formIds.AddRange(_allIds.Where(id => catalog.Forms.ContainsKey(id))
+                    .SelectMany(id => catalog.FormsOf(id).Select(form => Key(id, form))));
+                _storableHere = storable;
                 // Loaded first: RefreshView warms the visible page and fills the cursor line.
                 _loaded = true;
                 RefreshView();
@@ -153,17 +166,17 @@ public sealed class CollectionDexPage : IPadPagingHandler
     /// open save (live, including unsaved generated/imported mons), and every other
     /// save on the shelf. Dex flags are ignored by design — a caught-then-released
     /// species is not something you can rebuild a living dex from.</summary>
-    private static async Task<List<(int Species, bool Shiny)>> CollectAsync(ISaveEngineSession? open)
+    private static async Task<List<(int Species, int Form, bool Shiny)>> CollectAsync(ISaveEngineSession? open)
     {
-        var collection = new List<(int Species, bool Shiny)>();
+        var collection = new List<(int Species, int Form, bool Shiny)>();
         var services = IPlatformApplication.Current?.Services;
         var bank = services?.GetService<IBankService>();
         if (bank is not null)
             foreach (var entry in bank.GetAll())
-                if (entry.Info.Species > 0) collection.Add((entry.Info.Species, entry.Info.Shiny));
+                if (entry.Info.Species > 0) collection.Add((entry.Info.Species, entry.Info.Form, entry.Info.Shiny));
         if (open is not null)
             foreach (var slot in open.Snapshot.Slots)
-                if (slot.Species is > 0 && !slot.IsEgg) collection.Add((slot.Species.Value, slot.IsShiny));
+                if (slot.Species is > 0 && !slot.IsEgg) collection.Add((slot.Species.Value, slot.Form, slot.IsShiny));
 
         // The other games on the shelf: mons still living in their cartridges count
         // toward the national tracker even though they were never deposited.
@@ -180,7 +193,7 @@ public sealed class CollectionDexPage : IPadPagingHandler
                     var bytes = await access.ReadAsync(save.DocumentId);
                     using var session = engine.OpenSession(bytes, save.EngineHint, save.Format);
                     foreach (var slot in session.Snapshot.Slots)
-                        if (slot.Species is > 0 && !slot.IsEgg) collection.Add((slot.Species.Value, slot.IsShiny));
+                        if (slot.Species is > 0 && !slot.IsEgg) collection.Add((slot.Species.Value, slot.Form, slot.IsShiny));
                 }
                 catch (Exception)
                 {
@@ -191,38 +204,83 @@ public sealed class CollectionDexPage : IPadPagingHandler
         return collection;
     }
 
-    private void Apply(List<(int Species, bool Shiny)> collection)
+    private void Apply(List<(int Species, int Form, bool Shiny)> collection)
     {
-        _progressData = CollectionDex.Compute(collection, CollectionDex.MaxSpecies, _data.SpeciesNames);
+        _progressData = CollectionDex.Compute(collection.Select(c => (c.Species, c.Shiny)), CollectionDex.MaxSpecies, _data.SpeciesNames);
         _owned.Clear();
         _shiny.Clear();
-        foreach (var (species, shiny) in collection)
+        _ownedForms.Clear();
+        _shinyForms.Clear();
+        foreach (var (species, form, shiny) in collection)
         {
             if (species < 1 || species >= _data.SpeciesNames.Count || _data.SpeciesNames[species].Length == 0) continue;
             _owned.Add(species);
-            if (shiny) _shiny.Add(species);
+            _ownedForms.Add(Key(species, form));
+            if (shiny)
+            {
+                _shiny.Add(species);
+                _shinyForms.Add(Key(species, form));
+            }
         }
-     }
+    }
+
+    private static int Key(int species, int form) => species | (form << 16);
+    private static int SpeciesOf(int key) => key & 0xFFFF;
+    private static int FormOf(int key) => key >> 16;
+
+    /// <summary>Owned and total for the cells of one generation (0: this game, null: all), in the current view.</summary>
+    private (int Owned, int Total) Tally(int? scope)
+    {
+        var cells = InScope(_formsDex ? _formIds : _allIds, scope).ToList();
+        return (cells.Count(IsOwned), cells.Count);
+    }
+
+    private IEnumerable<int> InScope(IEnumerable<int> cells, int? scope)
+    {
+        if (scope is > 0)
+        {
+            var range = CollectionDex.GenRanges.Single(r => r.Generation == scope);
+            return cells.Where(key => SpeciesOf(key) >= range.First && SpeciesOf(key) <= range.Last);
+        }
+        if (scope == 0)
+        {
+            var cap = _session?.MaxSpeciesId ?? CollectionDex.MaxSpecies;
+            return cells.Where(key => SpeciesOf(key) <= cap && (!_formsDex || _storableHere?.Invoke(SpeciesOf(key), FormOf(key)) != false));
+        }
+        return cells;
+    }
 
     private void RefreshChrome()
     {
         if (_progressData is null) return;
-        var scope = _shinyDex ? "Shiny living dex" : "Living dex";
+        var scope = (_shinyDex, _formsDex) switch
+        {
+            (true, true) => "Shiny forms",
+            (false, true) => "Forms",
+            (true, false) => "Shiny living dex",
+            _ => "Living dex",
+        };
         var scoped = ScopedProgress();
         _title.Text = scope;
-        _progress.Text = $"{scoped.Owned}/{scoped.Total} · shiny {_progressData.Shiny}/{_progressData.TotalSpecies}";
+        _progress.Text = _formsDex
+            ? $"{scoped.Owned}/{scoped.Total} forms"
+            : $"{scoped.Owned}/{scoped.Total} · shiny {_progressData.Shiny}/{_progressData.TotalSpecies}";
 
         _chips.Children.Clear();
         _chipBorders.Clear();
         AddChip("ALL", null);
         if (_session is not null) AddChip("This game", 0);
         foreach (var segment in _progressData.Segments)
-            AddChip($"{Roman(segment.Generation)} {(_shinyDex ? segment.Shiny : segment.Owned)}/{segment.Total}", segment.Generation);
+        {
+            var (owned, total) = _formsDex ? Tally(segment.Generation) : (_shinyDex ? segment.Shiny : segment.Owned, segment.Total);
+            if (total > 0) AddChip($"{Roman(segment.Generation)} {owned}/{total}", segment.Generation);
+        }
     }
 
     private (int Owned, int Total) ScopedProgress()
     {
         if (_progressData is null) return (0, 0);
+        if (_formsDex) return Tally(_genScope);
         if (_genScope is null)
             return (_shinyDex ? _progressData.Shiny : _progressData.Owned, _progressData.TotalSpecies);
         if (_genScope == 0)
@@ -256,63 +314,56 @@ public sealed class CollectionDexPage : IPadPagingHandler
     private void SetScope(int? scope)
     {
         _genScope = scope;
-        _page = 0;
-        _cursor = 0;
         RefreshView();
+        _grid.SetCursor(0);
     }
 
     private void ToggleMissingOnly()
     {
         _missingOnly = !_missingOnly;
-        _page = 0;
-        RefreshView();
+                RefreshView();
     }
 
 
     private int Count => _viewIds.Count;
-    private int PageCount => Math.Max(1, (Count + PageSize - 1) / PageSize);
-    private int IdAt(int page, int index) => _viewIds[page * PageSize + index];
 
-    private bool IsOwned(int id) => _shinyDex ? _shiny.Contains(id) : _owned.Contains(id);
+    /// <summary>The title keeps its width; the counter takes the rest, so they never overlap.</summary>
+    private Grid TitleRow()
+    {
+        var row = new Grid
+        {
+            ColumnSpacing = 16,
+            ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)],
+            Children = { _title, _progress },
+        };
+        Grid.SetColumn(_progress, 1);
+        return row;
+    }
+
+    private bool IsOwned(int key) => _formsDex
+        ? (_shinyDex ? _shinyForms : _ownedForms).Contains(key)
+        : (_shinyDex ? _shiny : _owned).Contains(SpeciesOf(key));
+
+    private bool IsShinyOwned(int key) => _formsDex ? _shinyForms.Contains(key) : _shiny.Contains(SpeciesOf(key));
 
     private void RefreshView()
     {
-        IEnumerable<int> view = _allIds;
-        if (_genScope is > 0)
-        {
-            var range = CollectionDex.GenRanges.Single(r => r.Generation == _genScope);
-            view = view.Where(id => id >= range.First && id <= range.Last);
-        }
-        else if (_genScope == 0)
-        {
-            var cap = _session?.MaxSpeciesId ?? CollectionDex.MaxSpecies;
-            view = view.Where(id => id <= cap);
-        }
+        var view = InScope(_formsDex ? _formIds : _allIds, _genScope);
         if (_missingOnly) view = view.Where(id => !IsOwned(id));
         _viewIds.Clear();
         _viewIds.AddRange(view);
-        _page = Math.Clamp(_page, 0, PageCount - 1);
-        _cursor = Math.Clamp(_cursor, 0, Math.Max(0, Count - 1));
+        _grid.Show(_viewIds, LookOf, identify: key => (SpeciesOf(key), FormOf(key)));
         RefreshChrome();
         RefreshCursorInfo();
-        WarmVisible();
-        _canvas.InvalidateSurface();
     }
 
-    /// <summary>Loads the whole visible page at once, so cells fill in one pass instead
-    /// of each waiting for its own paint handler to discover it is missing.</summary>
-    private void WarmVisible()
+    /// <summary>Owned entries in colour with their ball, missing ones as silhouettes, shinies starred.</summary>
+    private DexGridView.Look LookOf(int key)
     {
-        if (!_loaded) return;
-        for (var index = 0; index < PageSize; index++)
-        {
-            var absolute = _page * PageSize + index;
-            if (absolute >= Count) break;
-            var id = IdAt(_page, index);
-            _sprites.Warm(id, 0, _shinyDex && IsOwned(id),
-                () => MainThread.BeginInvokeOnMainThread(_canvas.InvalidateSurface));
-        }
+        var owned = IsOwned(key);
+        return new DexGridView.Look(Seen: owned, Caught: owned, Shiny: _shinyDex && owned, ShinyMark: IsShinyOwned(key));
     }
+
     private void RefreshCursorInfo()
     {
         if (!_loaded || Count == 0)
@@ -320,120 +371,24 @@ public sealed class CollectionDexPage : IPadPagingHandler
             _cursorInfo.Text = "";
             return;
         }
-        var id = IdAt(_page, _cursor);
-        var name = _data.SpeciesNames[id];
-        var state = _shiny.Contains(id)
+        var key = _viewIds[Math.Min(_grid.Cursor, Count - 1)];
+        var id = SpeciesOf(key);
+        var state = IsShinyOwned(key)
             ? (_shinyDex ? "Shiny owned" : "Owned + shiny")
-            : _owned.Contains(id) ? "Owned" : "Missing";
-        _cursorInfo.Text = $"#{id:000} {name} · {state}";
-    }
-
-    private void Paint(object? sender, SKPaintSurfaceEventArgs args)
-    {
-        var canvas = args.Surface.Canvas;
-        var wallpaper = BoxGridRenderer.WallpaperAt(2);
-        PksmPaint.Wallpaper(canvas, new SKRect(0, 0, args.Info.Width, args.Info.Height), wallpaper);
-        if (!_loaded) return;
-
-        var shadow = Pksm.WallpaperShade(wallpaper);
-        using var font = new SKFont { Size = 14, Edging = SKFontEdging.Antialias };
-        using var gold = new SKPaint { Color = UiTokens.SkShinyGold, IsAntialias = true };
-        for (var index = 0; index < PageSize; index++)
-        {
-            var rect = BoxGridRenderer.SlotRect(args.Info, index);
-            var absolute = _page * PageSize + index;
-            var exists = absolute < Count;
-            PksmPaint.Slot(canvas, rect, wallpaper, empty: !exists);
-            if (!exists) continue;
-            var id = IdAt(_page, index);
-            var owned = IsOwned(id);
-
-            var sprite = _sprites.GetSprite(id, 0, _shinyDex && owned);
-            if (sprite is not null)
-            {
-                var inset = Math.Min(rect.Width, rect.Height) * 0.04f;
-                var box = SKRect.Inflate(rect, -inset, -inset);
-                var scale = Math.Min(box.Width / sprite.Width, box.Height / sprite.Height);
-                var w = sprite.Width * scale;
-                var h = sprite.Height * scale;
-                var dest = new SKRect(rect.MidX - w / 2, rect.MidY - h / 2, rect.MidX + w / 2, rect.MidY + h / 2);
-                using var image = SKImage.FromBitmap(sprite);
-                if (owned)
-                {
-                    canvas.DrawImage(image, dest, BoxGridRenderer.SpriteSampling);
-                }
-                else
-                {
-                    // Missing species are pure black silhouettes: the "who's that
-                    // Pokémon?" read, and no alpha layer that could swallow the sprite
-                    // on a dark wallpaper.
-                    using var silhouette = new SKPaint
-                    {
-                        ColorFilter = SKColorFilter.CreateBlendMode(SKColors.Black, SKBlendMode.SrcIn),
-                        IsAntialias = false,
-                    };
-                    canvas.DrawImage(image, dest, BoxGridRenderer.SpriteSampling, silhouette);
-                }
-            }
-            else
-            {
-                _sprites.Warm(id, 0, _shinyDex && owned,
-                    () => MainThread.BeginInvokeOnMainThread(_canvas.InvalidateSurface));
-                PksmPaint.CenterText(canvas, _data.SpeciesNames[id], rect.MidX, rect.MidY, font, SKColors.White, shadow, SKTextAlign.Center);
-            }
-
-            if (owned) DrawPokeBall(canvas, rect.Right - rect.Width * 0.16f, rect.Bottom - rect.Height * 0.16f, rect.Width * 0.13f);
-            if (_shiny.Contains(id))
-                canvas.DrawCircle(rect.Left + rect.Width * 0.14f, rect.Bottom - rect.Height * 0.16f, rect.Width * 0.07f, gold);
-
-            if (index == _cursor)
-            {
-                using var focus = new SKPaint { Color = UiTokens.SkShinyGold, Style = SKPaintStyle.Stroke, StrokeWidth = 3.5f, IsAntialias = true };
-                canvas.DrawRoundRect(SKRect.Inflate(rect, 1.5f, 1.5f), 5, 5, focus);
-            }
-        }
-    }
-
-    /// <summary>A tiny owned badge: the Poké Ball itself, red top / white base.</summary>
-    private static void DrawPokeBall(SKCanvas canvas, float cx, float cy, float radius)
-    {
-        using var red = new SKPaint { Color = new SKColor(0xE3, 0x35, 0x0D), IsAntialias = true };
-        using var white = new SKPaint { Color = SKColors.White, IsAntialias = true };
-        using var ring = new SKPaint { Color = SKColors.Black, Style = SKPaintStyle.Stroke, StrokeWidth = MathF.Max(1f, radius * 0.16f), IsAntialias = true };
-        canvas.DrawCircle(cx, cy, radius, white);
-        canvas.Save();
-        canvas.ClipRect(new SKRect(cx - radius, cy - radius, cx + radius, cy));
-        canvas.DrawCircle(cx, cy, radius, red);
-        canvas.Restore();
-        canvas.DrawCircle(cx, cy, radius, ring);
-        canvas.DrawCircle(cx, cy, radius * 0.26f, white);
-        canvas.DrawCircle(cx, cy, radius * 0.26f, ring);
-    }
-
-    private void Touch(object? sender, SKTouchEventArgs args)
-    {
-        if (args.ActionType == SKTouchAction.Pressed) { args.Handled = true; return; }
-        if (args.ActionType != SKTouchAction.Released) return;
-        args.Handled = true;
-        if (!_loaded) return;
-        var slot = BoxGridRenderer.SlotFromTouch(_canvas.CanvasSize, args.Location);
-        if (slot < 0 || _page * PageSize + slot >= Count) return;
-        _cursor = slot;
-        RefreshCursorInfo();
-        _canvas.InvalidateSurface();
-        _ = ShowActionsAsync();
+            : (_formsDex ? _ownedForms.Contains(key) : _owned.Contains(id)) ? "Owned" : "Missing";
+        _cursorInfo.Text = $"#{id:000} {CellName(key)} · {state}";
     }
 
     public bool OnPadButton(PadButton button)
     {
         switch (button)
         {
-            case PadButton.Left: MoveCursor(-1, 0); return true;
-            case PadButton.Right: MoveCursor(1, 0); return true;
-            case PadButton.Up: MoveCursor(0, -1); return true;
-            case PadButton.Down: MoveCursor(0, 1); return true;
-            case PadButton.L: Page(-1); return true;
-            case PadButton.R: Page(1); return true;
+            case PadButton.Left: _grid.Move(-1, 0); return true;
+            case PadButton.Right: _grid.Move(1, 0); return true;
+            case PadButton.Up: _grid.Move(0, -1); return true;
+            case PadButton.Down: _grid.Move(0, 1); return true;
+            case PadButton.L: _grid.JumpSection(-1); return true;
+            case PadButton.R: _grid.JumpSection(1); return true;
             case PadButton.A: _ = ShowActionsAsync(); return true;
             case PadButton.B: Close(); return true;
             case PadButton.X: _ = ShowScopeMenuAsync(); return true;
@@ -443,37 +398,27 @@ public sealed class CollectionDexPage : IPadPagingHandler
         }
     }
 
-    private void MoveCursor(int dx, int dy)
-    {
-        if (Count == 0) return;
-        var col = _cursor % Columns;
-        var row = _cursor / Columns;
-        col = Math.Clamp(col + dx, 0, Columns - 1);
-        row = Math.Clamp(row + dy, 0, Rows - 1);
-        _cursor = Math.Clamp(row * Columns + col, 0, Count - 1);
-        RefreshCursorInfo();
-        _canvas.InvalidateSurface();
-    }
-
-    private void Page(int delta)
-    {
-        if (PageCount <= 1) return;
-        _page = (_page + delta + PageCount) % PageCount;
-        _cursor = 0;
-        RefreshCursorInfo();
-        _canvas.InvalidateSurface();
-    }
-
     private async Task ShowScopeMenuAsync()
     {
         var options = new List<PadOption> { new("All generations") };
-        if (_session is not null) options.Add(new PadOption("This game"));
-        options.AddRange(_progressData!.Segments.Select(s => new PadOption($"Gen {Roman(s.Generation)} · {(_shinyDex ? s.Shiny : s.Owned)}/{s.Total}")));
-        options.Add(new PadOption(_shinyDex ? "View: normal living dex" : "View: SHINY living dex"));
+        if (_session is not null) options.Add(new PadOption("This game", Detail: "Only the species in the open save's game."));
+        options.AddRange(_progressData!.Segments.Select(s => (s.Generation, Counts: _formsDex ? Tally(s.Generation) : (_shinyDex ? s.Shiny : s.Owned, s.Total)))
+            .Where(s => s.Counts.Item2 > 0)
+            .Select(s => new PadOption($"Gen {Roman(s.Generation)} · {s.Counts.Item1}/{s.Counts.Item2}")));
+        options.Add(new PadOption(_shinyDex ? "View: normal living dex" : "View: SHINY living dex",
+            Detail: _shinyDex ? null : "Only shiny Pokémon count toward each species."));
+        options.Add(new PadOption(_formsDex ? "View: one per species" : "View: every form",
+            Detail: _formsDex ? "Back to one entry per species." : "Lists each form on its own, like Unown letters and Vivillon patterns."));
         var choice = await PadMenu.ShowAsync(_host, "Scope", null, options.ToArray());
         if (choice is null) return;
         if (choice == "All generations") SetScope(null);
         else if (choice == "This game") SetScope(0);
+        else if (choice.StartsWith("View: every form", StringComparison.Ordinal) || choice.StartsWith("View: one per", StringComparison.Ordinal))
+        {
+            _formsDex = !_formsDex;
+            RefreshView();
+            _grid.SetCursor(0);
+        }
         else if (choice.StartsWith("View:", StringComparison.Ordinal)) { _shinyDex = !_shinyDex; RefreshView(); }
         else if (choice.StartsWith("Gen ", StringComparison.Ordinal) && int.TryParse(RomanToNumber(choice[4].ToString()), out var gen))
             SetScope(gen);
@@ -488,10 +433,10 @@ public sealed class CollectionDexPage : IPadPagingHandler
     private async Task ShowActionsAsync()
     {
         if (!_loaded || Count == 0) return;
-        var id = IdAt(_page, _cursor);
-        var name = _data.SpeciesNames[id];
-        var choice = await PadMenu.ShowAsync(_host, $"#{id:000} {name}", null,
-            new PadOption("How to get", IconPath: "map"),
+        var key = _viewIds[Math.Min(_grid.Cursor, Count - 1)];
+        var id = SpeciesOf(key);
+        var choice = await PadMenu.ShowAsync(_host, $"#{id:000} {CellName(key)}", null,
+            new PadOption("How to get", IconPath: "map", Detail: "Where to find this species in each game."),
             new PadOption("Close", IconPath: "close"));
         if (choice == "How to get")
         {
@@ -523,8 +468,19 @@ public sealed class CollectionDexPage : IPadPagingHandler
         RefreshView();
     }
 
+    /// <summary>"Vivillon (Sandstorm)"; the species name alone for form 0 or in the species view.</summary>
+    private string CellName(int key)
+    {
+        var name = _data.SpeciesNames[SpeciesOf(key)];
+        if (!_formsDex) return name;
+        var form = LivingDexCatalogBuilder.FormName(SpeciesOf(key), FormOf(key));
+        return form.Length == 0 ? name : $"{name} ({form})";
+    }
+
     private void Close()
     {
+        _secondClaim?.Release();
+        if (_secondState is not null) _secondState.PreviewSpecies = null;
         if (_router is not null) _router.Remove(this);
         _host.Remove(_overlay);
         _result.TrySetResult(true);

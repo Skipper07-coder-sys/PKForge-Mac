@@ -24,6 +24,12 @@ checks and one-tap legalize work offline.
 > emulator. PKForge also keeps its own backup of every save it writes.
 > Found a problem? See [Help test](#help-test).
 
+> [!NOTE]
+> **This fork** ([Skipper07-coder-sys/PKForge-Mac](https://github.com/Skipper07-coder-sys/PKForge-Mac), branch
+> `local-fixes`) brings the Mac port up to **PKForge 3.1.0** and adds:
+> - builds with Xcode 27 (no Android workload needed; macOS 14 or later)
+> - one window by default: the second screen is optional (**⌘2**, or Settings ▸ Misc ▸ Second screen)
+
 Not affiliated with Nintendo, Game Freak, or The Pokémon Company.
 
 ## Features
@@ -117,8 +123,9 @@ Mouse, keyboard or a controller (Xbox, PlayStation, Switch, MFi).
 | L / R | Q / W |
 | Start / Select | Tab / right Shift |
 
-Right-click does what a long press does. The lower screen opens as its own window;
-**Window ▸ Show Second Screen** (⌘2) brings it back.
+Right-click does what a long press does. PKForge starts in one window: pick a Pokémon, then
+Menu ▸ Summary for its details. **Window ▸ Second Screen** (⌘2) or Settings ▸ Misc ▸ Second screen
+opens the lower screen as its own window (the dual-screen handheld layout) and remembers the choice.
 
 Your Bank and backups live in `~/Library/Application Support/PKForge`.
 
@@ -127,10 +134,13 @@ Your Bank and backups live in `~/Library/Application Support/PKForge`.
 Needs Xcode and the .NET 10 SDK with the `maui-maccatalyst` workload.
 
 ```bash
-git clone --recursive https://github.com/macprotips/PKForge-Mac.git
+git clone --recursive -b local-fixes https://github.com/Skipper07-coder-sys/PKForge-Mac.git
 cd PKForge-Mac
 tools/build-mac.sh
 ```
+
+If `xcode-select` still points at the Command Line Tools, prefix the build with
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
 
 The app lands in `dist/`. To sign and notarize a release, set `PKFORGE_SIGN_IDENTITY` to your
 Developer ID and `PKFORGE_NOTARY_PROFILE` to a `notarytool` keychain profile first.

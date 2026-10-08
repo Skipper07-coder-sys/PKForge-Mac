@@ -24,6 +24,17 @@ public static class LivingDexCatalogBuilder
         return (species, form) => species > 0 && species <= max && personal.IsPresentInGame((ushort)species, (byte)form);
     }
 
+    private static readonly Lazy<GameStrings> Strings = new(() => GameInfo.GetStrings("en"));
+
+    /// <summary>A collectible form's name ("Alola", "Sandy Cloak"...), "" for the base form or when unnamed.</summary>
+    public static string FormName(int species, int form)
+    {
+        if (form == 0 || species <= 0) return "";
+        var strings = Strings.Value;
+        var names = FormConverter.GetFormList((ushort)species, strings.Types, strings.forms, GameInfo.GenderSymbolUnicode, EntityContext.Gen9);
+        return form < names.Length ? names[form] : $"Form {form}";
+    }
+
     private static LivingDexCatalog BuildCore()
     {
         var names = GameInfo.GetStrings("en").specieslist;
@@ -482,12 +493,9 @@ public sealed class LivingDexExecutor(
                 progress?.Report(new LivingDexProgress(LivingDexPhase.Writing, done, total, "Filling the Bank's living dex boxes…", SaveId: LivingDexPlanner.BankId));
                 ArrangeBank(staging);
                 bankArranged = staging.BankArranges.Count > 0;
-                foreach (var add in staging.BankAdds)
-                {
-                    var entry = bank!.Add(add.Data, add.Info);
-                    bankAdded.Add(entry.Id);
-                    bank.Move(entry.Id, add.Slot.Box, add.Slot.Slot);
-                }
+                // One index write lands every add in its planned slot, or none of them.
+                bankAdded.AddRange(bank!.AddMany([.. staging.BankAdds.Select(add => new BankDeposit(add.Data, add.Info, add.Slot.Box, add.Slot.Slot))])
+                    .Select(entry => entry.Id));
                 done++;
             }
 

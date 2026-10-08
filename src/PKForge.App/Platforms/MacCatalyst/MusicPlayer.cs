@@ -103,6 +103,24 @@ public sealed class MusicPlayer : IMusicPlayer, IDisposable
         if (Autostart && _library.Count > 0) Play();
     }
 
+    private bool _pausedForOverlay;
+
+    /// <summary>Something with its own sound took over (the About easter egg): music steps aside.</summary>
+    public void PauseForBackground()
+    {
+        if (_player?.Playing != true) return;
+        _player.Pause();
+        _pausedForOverlay = true;
+    }
+
+    /// <summary>Music paused by <see cref="PauseForBackground"/> carries on.</summary>
+    public void ResumeFromBackground()
+    {
+        if (!_pausedForOverlay) return;
+        _pausedForOverlay = false;
+        _player?.Play();
+    }
+
     private void PlayIndex(int index)
     {
         StopInternal();

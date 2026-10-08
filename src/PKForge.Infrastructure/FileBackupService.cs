@@ -6,7 +6,8 @@ namespace PKForge.Infrastructure;
 
 /// <summary>
 /// Durable backup store: raw save bytes plus a JSON metadata sidecar per version,
-/// under an app-private directory. Oldest versions beyond <see cref="_maxVersions"/> are pruned.
+/// under an app-private directory. Each save file keeps its newest <see cref="_maxVersions"/>
+/// versions, so a busy save never pushes out another save's restore points.
 /// </summary>
 public sealed class FileBackupService(string rootDirectory, int maxVersions = 20) : IBackupService
 {
@@ -14,16 +15,17 @@ public sealed class FileBackupService(string rootDirectory, int maxVersions = 20
     private readonly int _maxVersions = maxVersions;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public async ValueTask<BackupReceipt> CreateAsync(SaveSnapshot source, string? changeDescription = null, CancellationToken cancellationToken = default)
+    public async ValueTask<BackupReceipt> CreateAsync(SaveSnapshot source, string? changeDescription = null, string? documentId = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         Directory.CreateDirectory(_root);
 
         var createdUtc = DateTimeOffset.UtcNow;
         var id = $"{createdUtc:yyyyMMddTHHmmssfffZ}-{Guid.NewGuid():N}";
-        var bytes = source.OriginalBytes;
-        var sha = Convert.ToHexString(SHA256.HashData(bytes.Span));
-        var info = new BackupInfo(id, createdUtc, sha, source.DisplayName, source.Format, source.Generation, bytes.Length, changeDescription);
+        var bytes = source.OriginalBytes.ToArray();
+        var sha = Convert.ToHexString(SHA256.HashData(bytes));
+        var info = new BackupInfo(id, createdUtc, sha, source.DisplayName, source.Format, source.Generation, bytes.LongLength, changeDescription, documentId);
 
         // Bytes first, sidecar last: a backup without a sidecar is ignored, never half-trusted.
         await File.WriteAllBytesAsync(BytesPath(id), bytes, cancellationToken).ConfigureAwait(false);
@@ -70,7 +72,8 @@ public sealed class FileBackupService(string rootDirectory, int maxVersions = 20
     {
         try
         {
-            foreach (var info in ReadAll().Skip(_maxVersions))
+            // Points made before they recorded their file share one allowance, as before.
+            foreach (var info in ReadAll().GroupBy(x => x.DocumentId).SelectMany(file => file.Skip(_maxVersions)))
             {
                 TryDelete(BytesPath(info.BackupId));
                 TryDelete(SidecarPath(info.BackupId));

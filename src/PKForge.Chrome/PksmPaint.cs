@@ -111,12 +111,12 @@ public static class PksmPaint
         using (var outline = Paint(Pksm.ButtonBlueDeep)) c.DrawRoundRect(r, 4, 4, outline);
         var inner = SKRect.Inflate(r, -1.5f, -1.5f);
         Vertical(c, inner, 3, Lighter(body, 0.16f), Darker(body, 0.1f));
-        using (var light = Paint(SKColors.White.WithAlpha(0x16)))
+        using (var light = Paint(ColorTheme.Current.Bright.WithAlpha(0x16)))
             c.DrawRoundRect(new SKRect(inner.Left + 1, inner.Top + 1, inner.Right - 1, inner.MidY), 2, 2, light);
         var baseline = r.MidY + font.Size * 0.35f;
         using (var sh = new SKPaint { Color = Pksm.LogoVoid.WithAlpha(0x90) })
             c.DrawText(label, r.Left + 10 + 1, baseline + 1, SKTextAlign.Left, font, sh);
-        using var ink = new SKPaint { Color = SKColors.White };
+        using var ink = new SKPaint { Color = ColorTheme.Current.Bright };
         c.DrawText(label, r.Left + 10, baseline, SKTextAlign.Left, font, ink);
     }
 
@@ -223,12 +223,12 @@ public static class PksmPaint
         using (var outline = Paint(Pksm.ButtonBlueDeep)) c.DrawRoundRect(r, 4, 4, outline);
         var inner = SKRect.Inflate(r, -1.5f, -1.5f);
         Vertical(c, inner, 3, Lighter(Pksm.HeaderBlue, 0.16f), Darker(Pksm.HeaderBlue, 0.1f));
-        using (var light = Paint(SKColors.White.WithAlpha(0x16)))
+        using (var light = Paint(ColorTheme.Current.Bright.WithAlpha(0x16)))
             c.DrawRoundRect(new SKRect(inner.Left + 1, inner.Top + 1, inner.Right - 1, inner.MidY), 2, 2, light);
         var baseline = inner.MidY + font.Size * 0.35f;
         using (var sh = new SKPaint { Color = Pksm.LogoVoid.WithAlpha(0x90) })
             c.DrawText(label, inner.MidX + 1, baseline + 1, SKTextAlign.Center, font, sh);
-        using (var ink = new SKPaint { Color = SKColors.White })
+        using (var ink = new SKPaint { Color = ColorTheme.Current.Bright })
             c.DrawText(label, inner.MidX, baseline, SKTextAlign.Center, font, ink);
 
         var capWidth = inner.Height * 1.15f;
@@ -359,6 +359,28 @@ public static class PksmPaint
     }
 
     /// <summary>Bottom hint rail: a device panel carrying cyan key discs and pale labels.</summary>
+    /// <summary>
+    /// Where each prompt of <see cref="HintBar"/> sits (key disc and label, full bar height),
+    /// laid out exactly as it is drawn, so a canvas can make its hint bar tappable.
+    /// </summary>
+    public static IReadOnlyList<SKRect> HintBarHitRects(SKRect bar, IReadOnlyList<(string Key, string Label)> prompts, SKFont font)
+    {
+        var total = 0f;
+        foreach (var (key, label) in prompts)
+            total += Math.Max(font.Size * 1.3f, font.MeasureText(key) + font.Size * 0.9f) + 8 + font.MeasureText(label) + font.Size * 1.4f;
+        var x = bar.MidX - (total - font.Size * 1.4f) / 2;
+        var rects = new List<SKRect>(prompts.Count);
+        foreach (var (key, label) in prompts)
+        {
+            var kw = Math.Max(font.Size * 1.3f, font.MeasureText(key) + font.Size * 0.9f);
+            var width = kw + 8 + font.MeasureText(label);
+            // Half the gap on each side belongs to the prompt: no dead strip between two targets.
+            rects.Add(new SKRect(x - font.Size * 0.7f, bar.Top, x + width + font.Size * 0.7f, bar.Bottom));
+            x += width + font.Size * 1.4f;
+        }
+        return rects;
+    }
+
     public static void HintBar(SKCanvas c, SKRect bar, IReadOnlyList<(string Key, string Label)> prompts, SKFont font)
     {
         Panel(c, SKRect.Inflate(bar, -3, -3));

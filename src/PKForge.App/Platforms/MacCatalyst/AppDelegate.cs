@@ -10,6 +10,7 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
 
     public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
     {
+        MacSecondaryDisplayHost.ApplyMacDefault();
         var launched = base.FinishedLaunching(application, launchOptions);
         MacPadInput.StartControllers();
         // A key or button held while the app loses focus never sends its release: let go of everything.

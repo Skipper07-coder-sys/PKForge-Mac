@@ -74,7 +74,8 @@ public sealed class PadMenu : IPadHandler
         }
 
         var content = new VerticalStackLayout { Spacing = 10 };
-        content.Children.Add(Kit.HeaderBar(title));
+        // The title as a section chip, the same as the editor's and the summary's sections.
+        content.Children.Add(EditorRows.EditorSection(title));
         if (!string.IsNullOrEmpty(message))
         {
             content.Children.Add(new Label
@@ -86,7 +87,7 @@ public sealed class PadMenu : IPadHandler
             });
         }
         content.Children.Add(grid);
-        content.Children.Add(Kit.WindowHints(("A", "Choose", null), ("B", "Cancel", () => Close(null))));
+        content.Children.Add(Kit.WindowHints(("A", "Choose", () => OnPadButton(PadButton.A)), ("B", "Cancel", () => Close(null))));
 
         // PadMenu owns the ScrollView (same structure as OverlayWindow's default) so
         // Highlight can scroll the cursor into view; the window caps to the host.

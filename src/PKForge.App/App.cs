@@ -14,28 +14,42 @@ public sealed class App : Application
     protected override void OnSleep()
     {
         Suspended?.Invoke();
+#if ANDROID
+        // A handheld's music stops with the app; on a Mac it keeps playing behind other windows.
+        Music?.PauseForBackground();
+#endif
         base.OnSleep();
     }
+
+#if ANDROID || MACCATALYST
+    private static PlatformMusicPlayer? Music =>
+        IPlatformApplication.Current?.Services.GetService<Domain.IMusicPlayer>() as PlatformMusicPlayer;
+#endif
 
     /// <summary>The user's optional default background music starts with the app, once.</summary>
     protected override void OnStart()
     {
         base.OnStart();
 #if ANDROID || MACCATALYST
-        var music = IPlatformApplication.Current?.Services.GetService<Domain.IMusicPlayer>() as PlatformMusicPlayer;
-        music?.MaybeAutostart();
+        Music?.MaybeAutostart();
 #endif
     }
 
     protected override void OnResume()
     {
         base.OnResume();
+#if ANDROID
+        Music?.ResumeFromBackground();
+#endif
         Resumed?.Invoke();
     }
 
     public App()
     {
         Trace("App ctor");
+
+        // Every page reads its chrome colors when it is built, so the scheme comes first.
+        Services.ColorThemeSetting.ApplyStored();
 
         // Warm both Skia faces off the ctor: the party view paints before the first
         // save opens, and its cached nickname font must never pin the placeholder.
@@ -61,6 +75,40 @@ public sealed class App : Application
 #endif
     }
 
+    private static NavigationPage CreateRoot(IServiceProvider services)
+    {
+        Trace("resolving HomePage");
+        var page = services.GetRequiredService<Views.HomePage>();
+        Trace("HomePage resolved");
+        return new NavigationPage(page)
+        {
+            BarBackgroundColor = Theme.UiTokens.Navy1,
+            BarTextColor = Colors.White,
+        };
+    }
+
+    /// <summary>
+    /// Builds Home and the lower screen again after a color scheme change: pages take their
+    /// colors when they are built. Called from Home's settings, so Home is the only page open.
+    /// </summary>
+    internal async Task ReloadForThemeAsync()
+    {
+        var services = IPlatformApplication.Current?.Services;
+        if (services is null || Windows.Count == 0) return;
+        Windows[0].Page = CreateRoot(services);
+        var host = services.GetService<PKForge.Domain.ISecondaryDisplayHost>();
+        if (host is null || Services.SecondScreenMode.UserOff) return;
+        try
+        {
+            await host.DismissAsync();
+            if (host.IsAvailable) await host.ShowAsync();
+        }
+        catch (InvalidOperationException error)
+        {
+            Services.AppLog.Warn("theme", $"Rebuilding the lower screen: {error.Message}");
+        }
+    }
+
     protected override Window CreateWindow(IActivationState? activationState)
     {
         Trace("CreateWindow enter");
@@ -69,14 +117,7 @@ public sealed class App : Application
         {
             var services = IPlatformApplication.Current?.Services
                 ?? throw new InvalidOperationException("MAUI services are unavailable.");
-            Trace("resolving HomePage");
-            var page = services.GetRequiredService<Views.HomePage>();
-            Trace("HomePage resolved");
-            var window = new Window(new NavigationPage(page)
-            {
-                BarBackgroundColor = Theme.UiTokens.Navy1,
-                BarTextColor = Colors.White,
-            });
+            var window = new Window(CreateRoot(services));
 #if MACCATALYST
             // Laid out for a 16:9 handheld: open at that shape, never squeeze it below usable.
             window.Title = "PKForge";

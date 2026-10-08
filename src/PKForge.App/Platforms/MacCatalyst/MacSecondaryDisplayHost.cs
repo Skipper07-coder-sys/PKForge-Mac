@@ -1,3 +1,4 @@
+using PKForge.App.Services;
 using PKForge.Domain;
 
 namespace PKForge.App;
@@ -6,37 +7,46 @@ namespace PKForge.App;
 /// The lower screen as a companion window. The dual-screen UI is driven from the main window;
 /// this window mirrors it. Closing it by hand keeps it closed until the next launch.
 /// <para>
-/// Two layouts, picked in Window ▸ Second Screen (⌘2) or Settings ▸ Screens and remembered:
-/// Dual opens the AYN Thor-style companion window; Single (the default) reports no second
-/// display, so every page uses its phone layout and the details live in the slot menu's Summary.
-/// A laptop screen has no room for a second window beside the main one, so Single comes first.
+/// Whether it opens follows <see cref="SecondScreenMode"/>, the same setting as Settings ▸ Misc ▸
+/// Second screen, also on Window ▸ Second Screen (⌘2). OFF reports no second display, so every
+/// page uses its one-screen layout and a Pokémon's details live in its menu's Summary. A Mac
+/// starts with it OFF (<see cref="ApplyMacDefault"/>): a laptop screen has no room for a second
+/// window beside the main one.
 /// </para>
 /// </summary>
 public sealed class MacSecondaryDisplayHost(IServiceProvider services) : ISecondaryDisplayHost
 {
     private const double Width = 640, Height = 480;
-    private const string DualKey = "mac_dual_screen";
     private Window? _window;
     private ContentPage? _page;
     private bool _closedByUser;
     private Window? _dismissed;
 
-    /// <summary>The remembered layout: true = Dual (second window), false = Single.</summary>
-    public static bool DualPreferred => Preferences.Default.Get(DualKey, false);
+    public bool IsAvailable => SecondScreenMode.Allowed && !_closedByUser;
 
-    public bool IsAvailable => DualPreferred && !_closedByUser;
-
-    /// <summary>Switches layout now and remembers it for the next launch.</summary>
-    public void SetDual(bool dual)
+    /// <summary>
+    /// Runs once per Mac, before the first page asks: the second screen starts OFF here, unlike
+    /// on a dual-screen handheld. Carries over the choice made with the earlier Mac-only setting.
+    /// </summary>
+    public static void ApplyMacDefault()
     {
-        Preferences.Default.Set(DualKey, dual);
-        _closedByUser = false;
-        if (dual) _ = ReopenAsync();
-        else _ = DismissAsync();
+        const string Applied = "mac_second_screen_default_applied", Legacy = "mac_dual_screen";
+        if (Preferences.Default.Get(Applied, false)) return;
+        SecondScreenMode.SetUserOff(!Preferences.Default.Get(Legacy, false));
+        Preferences.Default.Remove(Legacy);
+        Preferences.Default.Set(Applied, true);
     }
 
     /// <summary>The ⌘2 menu toggle: a showing second screen goes away, a missing one comes back.</summary>
-    public void Toggle() => SetDual(!IsAvailable);
+    public void Toggle()
+    {
+        var on = !IsAvailable;
+        SecondScreenMode.SetUserOff(!on);
+        _closedByUser = false;
+        AppLog.Info("second", on ? "Player turned the second screen on (⌘2)" : "Player turned the second screen off (⌘2)");
+        if (on) _ = ReopenAsync();
+        else _ = DismissAsync();
+    }
 
     public ValueTask ShowAsync(CancellationToken cancellationToken = default)
     {
@@ -64,8 +74,8 @@ public sealed class MacSecondaryDisplayHost(IServiceProvider services) : ISecond
         try { app.OpenWindow(window); }
         catch (Exception e)
         {
-            System.Diagnostics.Debug.WriteLine($"Second screen failed to open: {e}");
             Cleanup();
+            SecondScreenMode.DisableForSession("the second screen window failed to open", e);
         }
         return ValueTask.CompletedTask;
     }
@@ -91,6 +101,8 @@ public sealed class MacSecondaryDisplayHost(IServiceProvider services) : ISecond
     public ValueTask DismissAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        // Turned off in Settings: a window closed by hand earlier no longer blocks turning it on again.
+        if (SecondScreenMode.UserOff) _closedByUser = false;
         if (_window is { } window && Application.Current is { } app)
         {
             _dismissed = window;
