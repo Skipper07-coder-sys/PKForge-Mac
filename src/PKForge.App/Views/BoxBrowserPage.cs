@@ -1064,7 +1064,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     private async Task FindHeldItemAsync()
     {
         var data = IPlatformApplication.Current?.Services.GetService<IGameDataService>();
-        var itemNames = data?.ItemNames ?? [];
+        var itemNames = data is null ? [] : SaveItemNames(data);
         var all = _viewModel.AllSlots;
         var tally = HeldItemSearch.Tally(all.Where(s => s.Species is not null).Select(s => s.HeldItem));
         if (tally.Count == 0)
@@ -4341,8 +4341,8 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         nature.IsVisible = (_sessionsFor()?.Generation ?? 3) >= 3;
         var ability = FocusBorder(NamedPicker("ABILITY", nameof(BoxBrowserViewModel.EditAbility), data.AbilityNames,
             AbilityItems, shaded: false), "ABILITY", async () => await OpenNamedPickerAsync("ABILITY", nameof(BoxBrowserViewModel.EditAbility), AbilityItems));
-        var item = FocusBorder(NamedPicker("HELD ITEM", nameof(BoxBrowserViewModel.EditHeldItem), data.ItemNames,
-            () => ItemsWithIcons(data.ItemNames), shaded: true, open: OpenItem), "Held item", OpenItem);
+        var item = FocusBorder(NamedPicker("HELD ITEM", nameof(BoxBrowserViewModel.EditHeldItem), new LiveNames(() => SaveItemNames(data)),
+            () => ItemsWithIcons(SaveItemNames(data)), shaded: true, open: OpenItem), "Held item", OpenItem);
         var move1 = FocusBorder(NamedPicker("MOVE 1", nameof(BoxBrowserViewModel.EditMove1), data.MoveNames, MoveItems, shaded: false,
             open: () => OpenMove("MOVE 1", nameof(BoxBrowserViewModel.EditMove1))), "MOVE 1", () => OpenMove("MOVE 1", nameof(BoxBrowserViewModel.EditMove1)));
         var move2 = FocusBorder(NamedPicker("MOVE 2", nameof(BoxBrowserViewModel.EditMove2), data.MoveNames, MoveItems, shaded: true,
@@ -5000,7 +5000,9 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         var placeholder = ItemArt.PlaceholderPath();
         string? Icon(int id)
         {
-            var cached = System.IO.Path.Combine(directory, ItemArt.Slug(data.ItemNames[id]) + ".png");
+            var names = SaveItemNames(data);
+            if ((uint)id >= (uint)names.Count) return placeholder;
+            var cached = System.IO.Path.Combine(directory, ItemArt.Slug(names[id]) + ".png");
             return File.Exists(cached) ? cached : placeholder;
         }
         var picked = await InfoPickers.ShowHeldItemsAsync(_hostGrid, "Held item", data, _sessionsFor(),
@@ -5323,6 +5325,24 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
 
         public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) =>
             throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Item names in the open save's own id space. A held item is stored as the game's id:
+    /// Gen 1-3 number their items differently from the modern table (Gen 2's 156 is Sacred
+    /// Ash, the modern 156 is Persim Berry), so naming it with the modern list shows, and
+    /// lets you pick, the wrong item.
+    /// </summary>
+    private IReadOnlyList<string> SaveItemNames(IGameDataService data) =>
+        _sessionsFor()?.GetItemNames() is { Count: > 0 } names ? names : data.ItemNames;
+
+    /// <summary>A name list read afresh on every lookup, for bindings made once but shown for whichever save is open.</summary>
+    private sealed class LiveNames(Func<IReadOnlyList<string>> source) : IReadOnlyList<string>
+    {
+        public string this[int index] => source()[index];
+        public int Count => source().Count;
+        public IEnumerator<string> GetEnumerator() => source().GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     /// <summary>Shows the id's display name; ids without a name fall back to the raw number.</summary>

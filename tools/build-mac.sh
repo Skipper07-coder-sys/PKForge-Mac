@@ -26,7 +26,9 @@ sign_args=()
 if [[ -n "${PKFORGE_SIGN_IDENTITY:-}" ]]; then
     sign_args=(-p:CodesignKey="$PKFORGE_SIGN_IDENTITY" -p:UseHardenedRuntime=true)
 fi
-dotnet build src/PKForge.App/PKForge.App.csproj -f net10.0-maccatalyst -c Release --no-incremental "${sign_args[@]}"
+# PKForgeMacOnly drops net10.0-android from the app's TargetFrameworks: restore evaluates every framework
+# and would otherwise demand the android workload. (Overriding TargetFrameworks itself leaks into project references.)
+dotnet build src/PKForge.App/PKForge.App.csproj -f net10.0-maccatalyst -p:PKForgeMacOnly=true -c Release --no-incremental "${sign_args[@]}"
 mkdir -p dist
 rm -rf dist/PKForge.app
 cp -R src/PKForge.App/bin/Release/net10.0-maccatalyst/PKForge.app dist/

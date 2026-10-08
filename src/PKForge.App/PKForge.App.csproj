@@ -3,6 +3,8 @@
     <TargetFrameworks>net10.0-android</TargetFrameworks>
     <!-- The Mac build needs Xcode, so it is only offered on macOS; Linux/Windows CI stays Android-only. -->
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(TargetFrameworks);net10.0-maccatalyst</TargetFrameworks>
+    <!-- tools/build-mac.sh sets PKForgeMacOnly so a Mac without the android workload can still restore. -->
+    <TargetFrameworks Condition="'$(PKForgeMacOnly)' == 'true'">net10.0-maccatalyst</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <RootNamespace>PKForge.App</RootNamespace>
     <UseMaui>true</UseMaui>
@@ -19,7 +21,8 @@
     <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
   </PropertyGroup>
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-maccatalyst'">
-    <SupportedOSPlatformVersion>16.0</SupportedOSPlatformVersion>
+    <!-- 17.0 (macOS 14): the Xcode 27 Mac Catalyst SDK pack refuses anything lower. -->
+    <SupportedOSPlatformVersion>17.0</SupportedOSPlatformVersion>
     <RuntimeIdentifiers>maccatalyst-arm64;maccatalyst-x64</RuntimeIdentifiers>
     <CodesignEntitlements>Platforms/MacCatalyst/Entitlements.plist</CodesignEntitlements>
     <!-- Local ad-hoc signing; no Apple developer account required. -->
