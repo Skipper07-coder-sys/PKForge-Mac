@@ -122,7 +122,7 @@
   <ItemGroup>
     <PKForgeAppleShared Include="Platforms/MacCatalyst/AppDelegate.cs;Platforms/MacCatalyst/Program.cs;Platforms/MacCatalyst/SceneDelegate.cs;Platforms/MacCatalyst/PKForgeApplication.cs" />
     <PKForgeAppleShared Include="Platforms/MacCatalyst/MacPadInput.cs;Platforms/MacCatalyst/MacPickers.cs;Platforms/MacCatalyst/MacFileAccess.cs;Platforms/MacCatalyst/MacEmulatorScanner.cs" />
-    <PKForgeAppleShared Include="Platforms/MacCatalyst/MusicPlayer.cs;Platforms/MacCatalyst/CapsuleSkin.MacCatalyst.cs;Platforms/MacCatalyst/MacLayoutFixes.cs" />
+    <PKForgeAppleShared Include="Platforms/MacCatalyst/MusicPlayer.cs;Platforms/MacCatalyst/CapsuleSkin.MacCatalyst.cs;Platforms/MacCatalyst/MacLayoutFixes.cs;Platforms/MacCatalyst/PickerDropdown.cs" />
   </ItemGroup>
   <Target Name="PKForgeAddAppleShared" AfterTargets="_MauiRemovePlatformCompileItems" Condition="'$(TargetPlatformIdentifier)' == 'ios'">
     <ItemGroup>

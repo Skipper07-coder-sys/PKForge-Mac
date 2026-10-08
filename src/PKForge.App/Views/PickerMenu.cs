@@ -46,6 +46,8 @@ public sealed class PickerMenu : IPadHandler
     private const int MaxVisible = 1200;
     private const double PreviewWidth = 280; // the preview card's column beside the list
     private const double SideBySideWidth = 700; // the narrowest host that fits both columns
+    private const double DropdownWidth = 440; // the list column of a Mac dropdown
+    private const double DropdownHeight = 400; // about eight rows
 
     private readonly TaskCompletionSource<PickItem?> _result = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IReadOnlyList<PickItem> _all;
@@ -84,8 +86,18 @@ public sealed class PickerMenu : IPadHandler
         _hasTypes = items.Count(x => x.TypeId is not null) > 1;
         _filtered = Filter("");
         _router = IPlatformApplication.Current?.Services.GetService<GamepadRouter>();
+#if MACCATALYST
+        // Opened by a click, the picker drops down under that field; from the keyboard or a pad
+        // it stays the centred window.
+        var anchor = PointerAnchor.Recent(host);
+#else
+        Point? anchor = null;
+#endif
 
         var search = Kit.TextField();
+#if MACCATALYST || IOS
+        PadKeysWhileTyping.Mark(search);
+#endif
         search.Placeholder = "Search…";
         search.TextChanged += (_, args) =>
         {
@@ -164,6 +176,7 @@ public sealed class PickerMenu : IPadHandler
         if (filter is not null) hintList.Add(("Y", "Filter", ToggleFilter));
         hintList.Add(("B", "Cancel", () => Close(null)));
         var hints = Kit.WindowHints([.. hintList]);
+        hints.IsVisible = anchor is null; // a dropdown picks by click or Return and closes on a click outside
         var previewBar = Kit.Well(_preview, padding: 4);
         previewBar.Padding = new Thickness(10, 4);
         // The selected-item preview used to be layered over the controller hints in a
@@ -193,6 +206,8 @@ public sealed class PickerMenu : IPadHandler
         else if (livePreview is not null)
             hintRow.Children.Insert(0, livePreview.Panel);
 
+        var header = Kit.HeaderBar(Kit.Tidy(title));
+        header.IsVisible = anchor is null; // a dropdown sits under the field it names
         var content = new Grid
         {
             RowSpacing = 10,
@@ -200,7 +215,7 @@ public sealed class PickerMenu : IPadHandler
             RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star), new(GridLength.Auto)],
             Children =
             {
-                Kit.HeaderBar(Kit.Tidy(title)),
+                header,
                 searchRow,
                 body,
                 hintRow,
@@ -212,8 +227,15 @@ public sealed class PickerMenu : IPadHandler
 
         var window = Kit.OverlayWindow(host, content, preferredMaxWidth: side ? 520 + PreviewWidth + 12 : 520, scroll: false);
         Kit.GiveListRoom(window);
+        if (anchor is { } at) DropDown(host, window, at, side);
         _overlay = Kit.AttachOverlay(host, window, () => Close(null));
-        search.Unfocus(); // the pad drives first; touch users tap the box to type
+        if (anchor is not null)
+        {
+            // A dropdown, not a dialog: nothing dims, and typing filters at once (↑ ↓ Return Esc still drive the list).
+            if (_overlay.Children.FirstOrDefault() is BoxView scrim) scrim.Color = Colors.Transparent;
+            search.Dispatcher.Dispatch(() => search.Focus());
+        }
+        else search.Unfocus(); // the pad drives first; touch users tap the box to type
 
         if (currentId is { } id)
         {
@@ -222,6 +244,28 @@ public sealed class PickerMenu : IPadHandler
         }
         HighlightCurrent();
         _router?.Push(this);
+    }
+
+    /// <summary>
+    /// Places the window under the clicked point (above it when there is more room there), sized
+    /// for about eight rows and kept inside the host. The click is somewhere in the field's row,
+    /// so the gap clears the rest of that row.
+    /// </summary>
+    private static void DropDown(Grid host, Border window, Point at, bool side)
+    {
+        const double Edge = 8, Gap = 18;
+        var width = Math.Min(side ? DropdownWidth + PreviewWidth + 12 : DropdownWidth, host.Width - 2 * Edge);
+        var below = host.Height - at.Y - Gap - Edge;
+        var above = at.Y - Gap - Edge;
+        var openBelow = below >= Math.Min(DropdownHeight, 260) || below >= above;
+        var height = Math.Min(DropdownHeight, openBelow ? below : above);
+        window.WidthRequest = window.MaximumWidthRequest = width;
+        window.HeightRequest = window.MaximumHeightRequest = height;
+        window.HorizontalOptions = LayoutOptions.Start;
+        window.VerticalOptions = LayoutOptions.Start;
+        window.Margin = new Thickness(
+            Math.Clamp(at.X - 40, Edge, Math.Max(Edge, host.Width - width - Edge)),
+            openBelow ? at.Y + Gap : at.Y - Gap - height, 0, 0);
     }
 
     private static View BuildRow(PickerMenu tapOwner)

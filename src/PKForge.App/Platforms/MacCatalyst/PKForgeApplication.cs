@@ -13,6 +13,7 @@ public sealed class PKForgeApplication : UIApplication
 {
     public override void SendEvent(UIEvent uiEvent)
     {
+        if (uiEvent is UIPressesEvent { AllPresses: { } listKeys } && ListKeysWhileTyping(listKeys)) return;
         if (uiEvent is UIPressesEvent { AllPresses: { } presses })
             foreach (var press in presses)
             {
@@ -28,21 +29,36 @@ public sealed class PKForgeApplication : UIApplication
 #endif
             }
         base.SendEvent(uiEvent);
+        if (uiEvent.Type == UIEventType.Touches) PointerAnchor.Record(uiEvent);
 #if IOS
         if (uiEvent.Type == UIEventType.Touches) SettleCanvasTouches(uiEvent);
 #endif
     }
 
-#if IOS
-    private static bool TextInputFocused()
+    /// <summary>
+    /// In a picker's search box the arrows, Return and Esc drive the list (the pad) while every
+    /// other key types. Those keys are routed here and kept from the text field.
+    /// </summary>
+    private static bool ListKeysWhileTyping(NSSet<UIPress> presses)
     {
-        foreach (var scene in ConnectedScenes())
+        var all = presses.ToArray<UIPress>();
+        if (all.Length == 0 || all.Any(press => press.Key is not { } key || !PadKeysWhileTyping.IsListKey(key.KeyCode))) return false;
+        if (FocusedTextInput() is not { } field || !PadKeysWhileTyping.IsMarked(field)) return false;
+        foreach (var press in all)
+            if (press.Phase is UIPressPhase.Began or UIPressPhase.Ended or UIPressPhase.Cancelled)
+                AppDelegate.RouteKey(press, down: press.Phase == UIPressPhase.Began);
+        return true;
+    }
+
+    private static bool TextInputFocused() => FocusedTextInput() is not null;
+
+    private static UIView? FocusedTextInput()
+    {
+        foreach (var scene in SharedApplication.ConnectedScenes.ToArray<UIScene>())
             if (scene is UIWindowScene windows)
                 foreach (var window in windows.Windows)
-                    if (FirstResponder(window) is UITextField or UITextView) return true;
-        return false;
-
-        static IEnumerable<UIScene> ConnectedScenes() => SharedApplication.ConnectedScenes.ToArray<UIScene>();
+                    if (FirstResponder(window) is (UITextField or UITextView) and var field) return field;
+        return null;
 
         static UIView? FirstResponder(UIView view)
         {
@@ -53,6 +69,7 @@ public sealed class PKForgeApplication : UIApplication
         }
     }
 
+#if IOS
     /// <summary>
     /// SkiaSharp's canvas touch recognizer reports touches but never leaves the "possible" state.
     /// iOS then holds back every other tap in the window until it gives up on it (about 30 s), so
