@@ -15,8 +15,18 @@ public sealed class PKForgeApplication : UIApplication
     {
         if (uiEvent is UIPressesEvent { AllPresses: { } presses })
             foreach (var press in presses)
+            {
                 if (press.Phase is UIPressPhase.Ended or UIPressPhase.Cancelled)
                     AppDelegate.RouteKey(press, down: false);
+#if IOS
+                // iOS hands a hardware key only to the first responder, and with no text field
+                // focused there is none, so keys never reached the app delegate as they do on the
+                // Mac. Route them here unless a field is typing or a native sheet owns the keyboard
+                // (a key that also arrives through the delegate is ignored as a repeat).
+                else if (press.Phase == UIPressPhase.Began && !MacPadInput.NativeSheetShowing() && !TextInputFocused())
+                    AppDelegate.RouteKey(press, down: true);
+#endif
+            }
         base.SendEvent(uiEvent);
 #if IOS
         if (uiEvent.Type == UIEventType.Touches) SettleCanvasTouches(uiEvent);
@@ -24,6 +34,25 @@ public sealed class PKForgeApplication : UIApplication
     }
 
 #if IOS
+    private static bool TextInputFocused()
+    {
+        foreach (var scene in ConnectedScenes())
+            if (scene is UIWindowScene windows)
+                foreach (var window in windows.Windows)
+                    if (FirstResponder(window) is UITextField or UITextView) return true;
+        return false;
+
+        static IEnumerable<UIScene> ConnectedScenes() => SharedApplication.ConnectedScenes.ToArray<UIScene>();
+
+        static UIView? FirstResponder(UIView view)
+        {
+            if (view.IsFirstResponder) return view;
+            foreach (var child in view.Subviews)
+                if (FirstResponder(child) is { } found) return found;
+            return null;
+        }
+    }
+
     /// <summary>
     /// SkiaSharp's canvas touch recognizer reports touches but never leaves the "possible" state.
     /// iOS then holds back every other tap in the window until it gives up on it (about 30 s), so
