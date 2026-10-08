@@ -650,10 +650,17 @@ public sealed class HomePage : ContentPage, IPadHandler
             new PadOption("Check for update", IconPath: "update"),
             new PadOption("Music", IconPath: "music"),
             new PadOption("Misc", IconPath: "gears"),
-            new PadOption("Quit PKForge", IconPath: "quit"),
         ]);
+#if MACCATALYST
+        var screensOption = MacSecondaryDisplayHost.DualPreferred ? "Screens: Dual" : "Screens: Single";
+        options.Add(new PadOption(screensOption, IconPath: "compact"));
+#endif
+        options.Add(new PadOption("Quit PKForge", IconPath: "quit"));
         var choice = await PadMenu.ShowAsync(_hostGrid, "Settings", null, [.. options]);
         if (choice == hiddenOption) { await ShowHiddenSavesAsync(); return; }
+#if MACCATALYST
+        if (choice == screensOption) { await ShowScreensAsync(); return; }
+#endif
         switch (choice)
         {
             case "Link an emulator": await ShowLinkMenuAsync(); break;
@@ -670,6 +677,26 @@ public sealed class HomePage : ContentPage, IPadHandler
                 break;
         }
     }
+
+#if MACCATALYST
+    /// <summary>Single window (phone layout) or Dual (AYN Thor-style second window); also Window ▸ Second Screen, ⌘2.</summary>
+    private async Task ShowScreensAsync()
+    {
+        if (IPlatformApplication.Current?.Services.GetService<ISecondaryDisplayHost>() is not MacSecondaryDisplayHost host) return;
+        var dual = MacSecondaryDisplayHost.DualPreferred;
+        var choice = await PadMenu.ShowAsync(_hostGrid, "Screens", null,
+            new PadOption(dual ? "Single window" : "Single window ✓", IconPath: "compact",
+                Detail: "One window. Menu ▸ Summary shows a Pokémon's details."),
+            new PadOption(dual ? "Dual screen ✓" : "Dual screen", IconPath: "show",
+                Detail: "Second window with the details (AYN Thor style)."));
+        if (choice is null) return;
+        var wantDual = choice.StartsWith("Dual", StringComparison.Ordinal);
+        host.SetDual(wantDual);
+        _viewModel.Status = wantDual
+            ? "Dual screen: the second window shows the selected Pokémon. ⌘2 switches back."
+            : "Single window: pick a Pokémon, then Menu ▸ Summary for details. ⌘2 switches back.";
+    }
+#endif
 
     /// <summary>Hidden saves, one row each; picking one puts it back on the shelf.</summary>
     private async Task ShowHiddenSavesAsync()

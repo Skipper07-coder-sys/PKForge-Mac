@@ -21,15 +21,28 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
     {
         base.BuildMenu(builder);
         if (builder.System != UIMenuSystem.MainSystem) return;
-        var secondScreen = UIKeyCommand.Create((NSString)"Show Second Screen", null, new ObjCRuntime.Selector("pkfShowSecondScreen:"), "2", UIKeyModifierFlags.Command, null);
+        var secondScreen = UIKeyCommand.Create((NSString)"Second Screen", null, ToggleSecondScreenSelector, "2", UIKeyModifierFlags.Command, null);
         builder.InsertChildMenuAtStart(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [secondScreen]), UIMenuIdentifier.Window.GetConstant()!);
         var controls = UICommand.Create("Keyboard & Controller", null, new ObjCRuntime.Selector("pkfShowControls:"), null);
         builder.InsertChildMenuAtStart(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [controls]), UIMenuIdentifier.Help.GetConstant()!);
     }
 
-    [Export("pkfShowSecondScreen:")]
-    private void ShowSecondScreen(NSObject? sender) =>
-        (IPlatformApplication.Current?.Services.GetService<Domain.ISecondaryDisplayHost>() as MacSecondaryDisplayHost)?.Reopen();
+    private static readonly ObjCRuntime.Selector ToggleSecondScreenSelector = new("pkfToggleSecondScreen:");
+
+    private static MacSecondaryDisplayHost? SecondScreen =>
+        IPlatformApplication.Current?.Services.GetService<Domain.ISecondaryDisplayHost>() as MacSecondaryDisplayHost;
+
+    /// <summary>Window ▸ Second Screen (⌘2): Dual ↔ Single, remembered across launches.</summary>
+    [Export("pkfToggleSecondScreen:")]
+    private void ToggleSecondScreen(NSObject? sender) => SecondScreen?.Toggle();
+
+    /// <summary>Ticks Window ▸ Second Screen while the second window is in use.</summary>
+    public override void ValidateCommand(UICommand command)
+    {
+        base.ValidateCommand(command);
+        if (command.Action == ToggleSecondScreenSelector)
+            command.State = SecondScreen?.IsAvailable == true ? UIMenuElementState.On : UIMenuElementState.Off;
+    }
 
     [Export("pkfShowControls:")]
     private void ShowControls(NSObject? sender)
