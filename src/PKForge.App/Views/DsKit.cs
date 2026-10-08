@@ -157,15 +157,23 @@ public sealed class DsFolderButton : Grid
         line.WidthRequest = measured;
         _gliding.Add(line);
 
-        while (_selected && generation == _marqueeGeneration)
+        try
         {
-            var duration = (uint)Math.Clamp(overflow * 45, 1800, 6500);
-            await line.TranslateToAsync(-overflow, 0, duration, Easing.Linear);
-            if (!_selected || generation != _marqueeGeneration) return;
-            await Task.Delay(900);
-            if (!_selected || generation != _marqueeGeneration) return;
-            line.TranslationX = 0;
-            await Task.Delay(700);
+            // A closed menu's button stays "selected": stop once it is off screen (no handler).
+            while (_selected && generation == _marqueeGeneration && line.Handler is not null)
+            {
+                var duration = (uint)Math.Clamp(overflow * 45, 1800, 6500);
+                await line.TranslateToAsync(-overflow, 0, duration, Easing.Linear);
+                if (!_selected || generation != _marqueeGeneration) return;
+                await Task.Delay(900);
+                if (!_selected || generation != _marqueeGeneration) return;
+                line.TranslationX = 0;
+                await Task.Delay(700);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The window went away under the animation (quitting the app).
         }
     }
 

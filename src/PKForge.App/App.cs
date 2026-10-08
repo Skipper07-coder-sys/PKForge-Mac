@@ -95,7 +95,19 @@ public sealed class App : Application
     {
         var services = IPlatformApplication.Current?.Services;
         if (services is null || Windows.Count == 0) return;
+#if MACCATALYST
+        // A new root page makes Mac Catalyst re-inset the window under its title bar (an empty
+        // strip above the app's own). Swap Home inside the existing navigation stack instead.
+        if (Windows[0].Page is NavigationPage navigation)
+        {
+            navigation.BarBackgroundColor = Theme.UiTokens.Navy1;
+            navigation.Navigation.InsertPageBefore(services.GetRequiredService<Views.HomePage>(), navigation.RootPage);
+            await navigation.PopToRootAsync(false);
+        }
+        else Windows[0].Page = CreateRoot(services);
+#else
         Windows[0].Page = CreateRoot(services);
+#endif
         var host = services.GetService<PKForge.Domain.ISecondaryDisplayHost>();
         if (host is null || Services.SecondScreenMode.UserOff) return;
         try

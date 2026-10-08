@@ -74,5 +74,12 @@ public static class MacWindowChrome
         window.Created += (_, _) => MainThread.BeginInvokeOnMainThread(Configure);
         // Navigation can re-create the toolbar; keep the console look.
         window.Activated += (_, _) => { if (Scene() is { } scene) HideToolbar(scene); };
+        // A new root page (a color scheme change rebuilds Home) brings the title bar back without
+        // re-activating the window: hide it again once the new page has its handler.
+        window.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(Window.Page)) return;
+            window.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(150), () => { if (Scene() is { } scene) HideToolbar(scene); });
+        };
     }
 }
