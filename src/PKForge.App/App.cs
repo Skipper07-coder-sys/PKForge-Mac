@@ -1,6 +1,6 @@
 #if ANDROID
 using PlatformMusicPlayer = PKForge.App.Platforms.Android.MusicPlayer;
-#elif MACCATALYST
+#elif MACCATALYST || IOS
 using PlatformMusicPlayer = PKForge.App.Platforms.MacCatalyst.MusicPlayer;
 #endif
 
@@ -14,14 +14,14 @@ public sealed class App : Application
     protected override void OnSleep()
     {
         Suspended?.Invoke();
-#if ANDROID
-        // A handheld's music stops with the app; on a Mac it keeps playing behind other windows.
+#if ANDROID || IOS
+        // A handheld's or phone's music stops with the app; on a Mac it keeps playing behind other windows.
         Music?.PauseForBackground();
 #endif
         base.OnSleep();
     }
 
-#if ANDROID || MACCATALYST
+#if ANDROID || MACCATALYST || IOS
     private static PlatformMusicPlayer? Music =>
         IPlatformApplication.Current?.Services.GetService<Domain.IMusicPlayer>() as PlatformMusicPlayer;
 #endif
@@ -30,7 +30,7 @@ public sealed class App : Application
     protected override void OnStart()
     {
         base.OnStart();
-#if ANDROID || MACCATALYST
+#if ANDROID || MACCATALYST || IOS
         Music?.MaybeAutostart();
 #endif
     }
@@ -38,7 +38,7 @@ public sealed class App : Application
     protected override void OnResume()
     {
         base.OnResume();
-#if ANDROID
+#if ANDROID || IOS
         Music?.ResumeFromBackground();
 #endif
         Resumed?.Invoke();
@@ -64,7 +64,45 @@ public sealed class App : Application
         Resources.Add(FontStyle(typeof(Button), Button.FontFamilyProperty));
         Resources.Add(FontStyle(typeof(Entry), Entry.FontFamilyProperty));
         Resources.Add(FontStyle(typeof(Editor), Editor.FontFamilyProperty));
+#if IOS
+        ApplyPageDefaults();
+#endif
     }
+
+#if IOS
+    /// <summary>
+    /// iPhone pages run full screen, like the handheld: drawn behind the Dynamic Island and the
+    /// home bar (which fades after a moment), with the housing color behind any page that sets none.
+    /// </summary>
+    private void ApplyPageDefaults()
+    {
+        Resources[typeof(ContentPage).FullName!] = new Style(typeof(ContentPage))
+        {
+            ApplyToDerivedTypes = true,
+            Setters =
+            {
+                new Setter { Property = VisualElement.BackgroundColorProperty, Value = Theme.UiTokens.Housing },
+                new Setter { Property = ContentPage.SafeAreaEdgesProperty, Value = SafeAreaEdges.None },
+                new Setter
+                {
+                    Property = Microsoft.Maui.Controls.PlatformConfiguration.iOSSpecific.Page.PrefersHomeIndicatorAutoHiddenProperty,
+                    Value = true,
+                },
+            },
+        };
+        // Layouts and scroll views keep clear of the screen edges on their own, independently of the page.
+        Resources[typeof(Layout).FullName!] = new Style(typeof(Layout))
+        {
+            ApplyToDerivedTypes = true,
+            Setters = { new Setter { Property = Layout.SafeAreaEdgesProperty, Value = SafeAreaEdges.None } },
+        };
+        Resources[typeof(ScrollView).FullName!] = new Style(typeof(ScrollView))
+        {
+            ApplyToDerivedTypes = true,
+            Setters = { new Setter { Property = ScrollView.SafeAreaEdgesProperty, Value = SafeAreaEdges.None } },
+        };
+    }
+#endif
 
     internal static void Trace(string message)
     {
@@ -106,6 +144,9 @@ public sealed class App : Application
         }
         else Windows[0].Page = CreateRoot(services);
 #else
+#if IOS
+        ApplyPageDefaults();
+#endif
         Windows[0].Page = CreateRoot(services);
 #endif
         var host = services.GetService<PKForge.Domain.ISecondaryDisplayHost>();

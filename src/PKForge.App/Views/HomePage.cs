@@ -6,7 +6,7 @@ using PKForge.Domain;
 
 #if ANDROID
 using PlatformMusicPlayer = PKForge.App.Platforms.Android.MusicPlayer;
-#elif MACCATALYST
+#elif MACCATALYST || IOS
 using PlatformMusicPlayer = PKForge.App.Platforms.MacCatalyst.MusicPlayer;
 #endif
 
@@ -171,8 +171,8 @@ public sealed class HomePage : ContentPage, IPadHandler
     /// </summary>
     private static void AttachPress(View view, Action onTap, Action onLongPress)
     {
-#if MACCATALYST
-        // Mac: hold the click, or right-click / two-finger click, for the same action.
+#if MACCATALYST || IOS
+        // Mac: hold the click, or right-click / two-finger click, for the same action (iPhone: hold).
         view.HandlerChanged += (_, _) =>
         {
             if (view.Handler?.PlatformView is not UIKit.UIView platform) return;
@@ -569,6 +569,24 @@ public sealed class HomePage : ContentPage, IPadHandler
                 "Nintendo 3DS" => new[] { new PadOption("Azahar / Lime3DS", IconPath: "azahar") },
                 _ => new[] { new PadOption("Eden", IconPath: "eden") },
             };
+#elif IOS
+            // iPhone: emulators whose save folders the Files app can reach.
+            var options = platform switch
+            {
+                "Game Boy / Game Boy Color" or "Game Boy Advance" => new[]
+                {
+                    new PadOption("RetroArch", IconPath: "retroarch"),
+                    new PadOption("mGBA", IconPath: "storage"),
+                },
+                "Nintendo DS" => new[]
+                {
+                    new PadOption("melonDS", IconPath: "melonds"),
+                    new PadOption("RetroArch", IconPath: "retroarch"),
+                },
+                "GameCube" => new[] { new PadOption("Dolphin", IconPath: "dolphin") },
+                "Nintendo 3DS" => new[] { new PadOption("Azahar / Lime3DS", IconPath: "azahar") },
+                _ => new[] { new PadOption("Eden", IconPath: "eden") },
+            };
 #else
             var options = platform switch
             {
@@ -610,6 +628,9 @@ public sealed class HomePage : ContentPage, IPadHandler
                 "mGBA" => "Save in game and close mGBA. Select the folder containing your .sav battery saves: next to your ROMs by default, or the save folder set in mGBA's settings. Save states are not supported. Restart the game normally after editing.",
                 "OpenEmu" => "Save in game and quit OpenEmu. Select its Battery Saves folder (~/Library/Application Support/OpenEmu/Battery Saves) or one system folder inside it. Save states are not supported: OpenEmu may offer to resume from an auto-save state, so choose to restart the game instead.",
                 "DeSmuME" => "Save in game and close DeSmuME. Select the folder containing your .dsv battery saves: DeSmuME's Battery folder or next to your ROMs. Save states are not supported. Restart the game normally after editing.",
+#elif IOS
+                "RetroArch" => "Save in game and close the content. Select RetroArch's saves folder in the Files app, or a saves folder on a network share or in On My iPhone ▸ PKForge. Save states are not supported. Restart the game normally after editing.",
+                "mGBA" => "Select any folder of .sav battery saves, for example one copied into On My iPhone ▸ PKForge. Save states are not supported. Restart the game normally after editing.",
 #endif
 #if !MACCATALYST
                 "Dolphin" => "Save in game and stop emulation before editing Colosseum or XD. Select Dolphin's GC folder, a region folder, or Card A / Card B containing .gci saves. For .raw memory cards, export the game as GCI with Dolphin's Memory Card Manager, or configure that card slot as GCI Folder. After editing, start the game normally; loading an old save state can undo your edits.",
@@ -981,8 +1002,10 @@ public sealed class HomePage : ContentPage, IPadHandler
             new PadOption("Rescan games", IconPath: "refresh", Detail: "Look through your linked folders for saves again."),
             new PadOption("Scan report", IconPath: "report", Detail: "What the last scan found in each folder, to copy and send us."),
             new PadOption("Share logs", IconPath: "export", Detail: "Crash reports and recent activity, to send us when something goes wrong."),
+#if !IOS
             new PadOption(SecondScreenMode.UserOff ? "Second screen: OFF" : "Second screen: ON", IconPath: "compact",
                 Detail: "OFF keeps PKForge on one screen, so the other stays free (an emulator, say)."),
+#endif
             new PadOption(Services.HaXMode.IsOn ? "HaX mode: ON" : "HaX mode: OFF", IconPath: "hax",
                 Detail: "ON lets pickers offer any option, even illegal ones."),
             new PadOption(Services.HardcoreMode.IsOn ? "Hardcore mode: ON" : "Hardcore mode: OFF", IconPath: "hardcore",

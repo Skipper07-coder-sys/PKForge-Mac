@@ -5,6 +5,8 @@
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(TargetFrameworks);net10.0-maccatalyst</TargetFrameworks>
     <!-- tools/build-mac.sh sets PKForgeMacOnly so a Mac without the android workload can still restore. -->
     <TargetFrameworks Condition="'$(PKForgeMacOnly)' == 'true'">net10.0-maccatalyst</TargetFrameworks>
+    <!-- tools/build-ios.sh sets PKForgeIosOnly: the single-screen iPhone/iPad build. -->
+    <TargetFrameworks Condition="'$(PKForgeIosOnly)' == 'true'">net10.0-ios</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <RootNamespace>PKForge.App</RootNamespace>
     <UseMaui>true</UseMaui>
@@ -32,6 +34,14 @@
     <!-- The workload pins an exact Xcode; newer Xcode builds this fine. -->
     <ValidateXcodeVersion>false</ValidateXcodeVersion>
     <!-- The Mac Catalyst runtime has no ICU, and hybrid mode throws on PKHeX's IgnoreSymbols/IgnoreNonSpace name matching (Legalize, Showdown import). Invariant mode compares without throwing. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-ios'">
+    <!-- 17.0: the Xcode 27 iOS SDK pack refuses anything lower, as on the Mac. -->
+    <SupportedOSPlatformVersion>17.0</SupportedOSPlatformVersion>
+    <MtouchLink>SdkOnly</MtouchLink>
+    <ValidateXcodeVersion>false</ValidateXcodeVersion>
+    <!-- Same reason as the Mac: PKHeX's IgnoreSymbols name matching throws without full ICU. -->
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <PropertyGroup Condition="'$(DiagnosticBuild)' == 'true'">
@@ -106,6 +116,20 @@
     <!-- MPWSP01 environment art by Scarloxy; attribution in docs/POKEPARK_MPWSP01.md. -->
     <MauiAsset Include="Resources/Pokepark/Maps/*.png" LogicalName="pokepark/maps/%(Filename)%(Extension)" />
   </ItemGroup>
+  <!-- The Mac port is UIKit, so the iPhone build shares most of it. MAUI drops every other
+       platform's folder from a build by metadata, so these are added back after that step.
+       Not shared: the Mac window chrome and the second-screen window. -->
+  <ItemGroup>
+    <PKForgeAppleShared Include="Platforms/MacCatalyst/AppDelegate.cs;Platforms/MacCatalyst/Program.cs;Platforms/MacCatalyst/SceneDelegate.cs;Platforms/MacCatalyst/PKForgeApplication.cs" />
+    <PKForgeAppleShared Include="Platforms/MacCatalyst/MacPadInput.cs;Platforms/MacCatalyst/MacPickers.cs;Platforms/MacCatalyst/MacFileAccess.cs;Platforms/MacCatalyst/MacEmulatorScanner.cs" />
+    <PKForgeAppleShared Include="Platforms/MacCatalyst/MusicPlayer.cs;Platforms/MacCatalyst/CapsuleSkin.MacCatalyst.cs;Platforms/MacCatalyst/MacLayoutFixes.cs" />
+  </ItemGroup>
+  <Target Name="PKForgeAddAppleShared" AfterTargets="_MauiRemovePlatformCompileItems" Condition="'$(TargetPlatformIdentifier)' == 'ios'">
+    <ItemGroup>
+      <Compile Remove="@(PKForgeAppleShared)" />
+      <Compile Include="@(PKForgeAppleShared)" />
+    </ItemGroup>
+  </Target>
   <ItemGroup>
     <ProjectReference Include="../PKForge.Domain/PKForge.Domain.csproj" />
     <ProjectReference Include="../PKForge.Chrome/PKForge.Chrome.csproj" />

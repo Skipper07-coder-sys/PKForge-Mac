@@ -10,7 +10,12 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
 
     public override bool FinishedLaunching(UIApplication application, NSDictionary? launchOptions)
     {
+#if MACCATALYST
         MacSecondaryDisplayHost.ApplyMacDefault();
+#else
+        // iPhone: reopen saves picked outside the app before anything reads them.
+        IosSecurityScope.RestoreAll();
+#endif
         var launched = base.FinishedLaunching(application, launchOptions);
         MacPadInput.StartControllers();
         // A key or button held while the app loses focus never sends its release: let go of everything.
@@ -18,6 +23,8 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
         return launched;
     }
 
+#if MACCATALYST
+    // The menu bar, the second screen and the controls sheet are Mac-only; the iPhone build shares the rest.
     public override void BuildMenu(IUIMenuBuilder builder)
     {
         base.BuildMenu(builder);
@@ -64,6 +71,7 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
         alert.PreferredAction = ok;
         presenter.PresentViewController(alert, true, () => alert.View?.Window?.MakeKeyWindow());
     }
+#endif
 
     // Keys reach the delegate only when no text field took them, so typing a nickname
     // never moves the cursor around the box. ⌘ shortcuts always go to the system.

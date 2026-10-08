@@ -20,7 +20,7 @@ public static class MauiProgram
         App.Trace("CreateMauiApp enter");
 #if ANDROID
         Views.CapsuleSkin.Register();
-#elif MACCATALYST
+#elif MACCATALYST || IOS
         Views.CapsuleSkin.Register();
         MacLayoutFixes.Register();
 #endif
@@ -105,6 +105,18 @@ public static class MauiProgram
         builder.Services.AddSingleton<Platforms.MacCatalyst.MusicPlayer>();
         builder.Services.AddSingleton<IMusicPlayer>(sp => sp.GetRequiredService<Platforms.MacCatalyst.MusicPlayer>());
         builder.Services.AddSingleton<ISecondaryDisplayHost, MacSecondaryDisplayHost>();
+        builder.Services.AddSingleton<IEmulatorDetectionService, MacEmulatorScanner>();
+#elif IOS
+        // The Mac's path-based file code works once IosSecurityScope has opened each pick.
+        // No ISecondaryDisplayHost: one screen, so every page uses its single-screen layout.
+        builder.Services.AddSingleton<MacFileAccess>();
+        builder.Services.AddSingleton<ISaveFileAccess>(sp => sp.GetRequiredService<MacFileAccess>());
+        builder.Services.AddSingleton<IFolderFileAccess>(sp => sp.GetRequiredService<MacFileAccess>());
+        builder.Services.AddSingleton<MacPickers>();
+        builder.Services.AddSingleton<IDocumentPicker>(sp => sp.GetRequiredService<MacPickers>());
+        builder.Services.AddSingleton<IFolderPicker>(sp => sp.GetRequiredService<MacPickers>());
+        builder.Services.AddSingleton<Platforms.MacCatalyst.MusicPlayer>();
+        builder.Services.AddSingleton<IMusicPlayer>(sp => sp.GetRequiredService<Platforms.MacCatalyst.MusicPlayer>());
         builder.Services.AddSingleton<IEmulatorDetectionService, MacEmulatorScanner>();
 #endif
         builder.Services.AddSingleton<IWatchedRootStore, PreferencesWatchedRootStore>();

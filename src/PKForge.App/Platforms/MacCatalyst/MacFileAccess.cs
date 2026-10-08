@@ -40,6 +40,18 @@ public sealed class MacFileAccess : ISaveFileAccess, IFolderFileAccess
             }
             File.Move(temporary, target, overwrite: true);
         }
+#if IOS
+        catch (UnauthorizedAccessException) when (!File.Exists(temporary))
+        {
+            // A save picked on its own grants that one file: iOS refuses any new file beside it.
+            // Overwrite it in place; the restore point taken before every write covers a torn file.
+            await using var output = new FileStream(target, FileMode.Open, FileAccess.Write, FileShare.None, 81920, FileOptions.WriteThrough);
+            await output.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+            output.SetLength(bytes.Length);
+            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+            output.Flush(flushToDisk: true);
+        }
+#endif
         finally
         {
             if (File.Exists(temporary))

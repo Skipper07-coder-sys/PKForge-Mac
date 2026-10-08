@@ -68,7 +68,11 @@ public sealed class MacPickers : IDocumentPicker, IFolderPicker
         {
             try
             {
+#if MACCATALYST
                 var presenter = MacWindowChrome.MainPresenter()
+#else
+                var presenter = Platform.GetCurrentUIViewController()
+#endif
                     ?? throw new InvalidOperationException("No window is available to present the picker.");
                 var picker = new UIDocumentPickerViewController(types, asCopy: false)
                 {
@@ -78,7 +82,15 @@ public sealed class MacPickers : IDocumentPicker, IFolderPicker
                 if (startIn is not null)
                     picker.DirectoryUrl = NSUrl.FromFilename(startIn);
                 CancellationTokenRegistration registration = default;
-                picker.DidPickDocumentAtUrls += (_, e) => { registration.Dispose(); completion.TrySetResult(e.Urls); };
+                picker.DidPickDocumentAtUrls += (_, e) =>
+                {
+                    registration.Dispose();
+#if IOS
+                    // The sandbox lets the app into a pick only while its URL is open.
+                    foreach (var url in e.Urls) IosSecurityScope.Grant(url);
+#endif
+                    completion.TrySetResult(e.Urls);
+                };
                 picker.WasCancelled += (_, _) => { registration.Dispose(); completion.TrySetResult([]); };
                 registration = cancellationToken.Register(() => MainThread.BeginInvokeOnMainThread(() =>
                 {

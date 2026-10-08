@@ -138,6 +138,7 @@ public sealed class EventFlagsEditor : IPadHandler
             Grid.SetRow((View)content.Children[row], row);
 
         var window = Kit.OverlayWindow(host, content, preferredMaxWidth: 560, scroll: false);
+        Kit.GiveListRoom(window);
         _overlay = Kit.AttachOverlay(host, window, Close);
         search.Unfocus();
         Refilter(keep: null);

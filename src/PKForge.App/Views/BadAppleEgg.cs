@@ -1,7 +1,7 @@
 #if ANDROID
 using SongPlayer = Android.Media.MediaPlayer;
 using PlatformMusicPlayer = PKForge.App.Platforms.Android.MusicPlayer;
-#elif MACCATALYST
+#elif MACCATALYST || IOS
 using SongPlayer = AVFoundation.AVAudioPlayer;
 using PlatformMusicPlayer = PKForge.App.Platforms.MacCatalyst.MusicPlayer;
 #endif

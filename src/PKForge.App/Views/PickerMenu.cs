@@ -211,6 +211,7 @@ public sealed class PickerMenu : IPadHandler
         Grid.SetRow(hintRow, 3);
 
         var window = Kit.OverlayWindow(host, content, preferredMaxWidth: side ? 520 + PreviewWidth + 12 : 520, scroll: false);
+        Kit.GiveListRoom(window);
         _overlay = Kit.AttachOverlay(host, window, () => Close(null));
         search.Unfocus(); // the pad drives first; touch users tap the box to type
 

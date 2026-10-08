@@ -755,6 +755,18 @@ public static class Kit
     }
 
     /// <summary>
+    /// For a window whose list fills a Star row. UIKit's list reports no height of its own, so
+    /// a window sized to its content left the list none (an empty picker on Mac and iPhone): on
+    /// Apple platforms the window takes its full capped height instead. Android lists report theirs.
+    /// </summary>
+    public static void GiveListRoom(Border window)
+    {
+#if MACCATALYST || IOS
+        window.HeightRequest = window.MaximumHeightRequest;
+#endif
+    }
+
+    /// <summary>
     /// Layers scrim + window over the whole host grid (spanning every row/column) and
     /// plays the pop-in. Returns the overlay grid so the caller can remove it on close.
     /// </summary>

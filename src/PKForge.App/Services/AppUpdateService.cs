@@ -35,7 +35,7 @@ public sealed class AppUpdateService
             return new AppUpdateCheck(false, null, "Diagnostics builds are updated manually.");
 #if !ANDROID
         // Releases ship Android APKs only; desktop builds are rebuilt from source.
-        return new AppUpdateCheck(false, null, "Mac builds are updated manually (rebuild from source).");
+        return new AppUpdateCheck(false, null, "Mac and iPhone builds are updated manually (rebuild from source).");
 #pragma warning disable CS0162 // Shared Android release-check path below.
 #endif
 
