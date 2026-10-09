@@ -85,8 +85,7 @@ public sealed class ItemNamingTests
         using var session = new SaveEngineSession(save, null);
         var summary = new MonSummaryService().Build(session, 0, 0)!;
         Assert.Equal("BlackGlasses", summary.HeldItemName);
-        Assert.NotNull(summary.HeldItemEffect);
-        Assert.Equal(PKForge.Domain.DexFacts.Item("Black Glasses"), summary.HeldItemEffect);
+        Assert.Equal("A hold item that raises the power of DARK-type moves.", summary.HeldItemEffect); // Emerald's own words
     }
 
     /// <summary>Each game numbers its machines: the disc's colour and the effect line follow this game's move.</summary>
@@ -165,15 +164,87 @@ public sealed class ItemNamingTests
         Assert.Equal("Teaches Swords Dance to a compatible Pokémon.", session.GetItemDescription(id));
     }
 
-    /// <summary>A game without a machine table in PKHeX keeps the shared names and text.</summary>
+    /// <summary>
+    /// A game without a machine table in PKHeX keeps the shared names; its TM text is its own bag's
+    /// (X's TM01 is Hone Claws), and a game newer than the bag-text data keeps the shared text, since
+    /// borrowing an older game's TM01 would describe another move.
+    /// </summary>
     [Fact]
-    public void GamesWithoutAMachineTableKeepTheSharedText()
+    public void GamesWithoutAMachineTableReadTheirOwnBagText()
     {
-        using var session = new SaveEngineSession(BlankSaveFile.Get(GameVersion.X, "TEST", LanguageID.English), null);
-        var id = session.GetItemNames().ToList().IndexOf("TM01");
-        Assert.Equal("TM01", session.GetItemArtNames()[id]);
-        Assert.Equal(PKForge.Domain.DexFacts.Item("TM01"), session.GetItemDescription(id));
+        using var x = new SaveEngineSession(BlankSaveFile.Get(GameVersion.X, "TEST", LanguageID.English), null);
+        var id = x.GetItemNames().ToList().IndexOf("TM01");
+        Assert.Equal("TM01", x.GetItemArtNames()[id]);
+        Assert.Equal("The user sharpens its claws to boost its Attack stat and accuracy.", x.GetItemDescription(id));
+
+        using var za = new SaveEngineSession(BlankSaveFile.Get(GameVersion.ZA, "TEST", LanguageID.English), null);
+        var zaId = za.GetItemNames().ToList().IndexOf("TM001");
+        if (zaId < 0) zaId = za.GetItemNames().ToList().IndexOf("TM01");
+        Assert.True(zaId >= 0);
+        Assert.Equal(PKForge.Domain.DexFacts.Item(za.GetItemArtNames()[zaId]), za.GetItemDescription(zaId));
     }
+
+    /// <summary>Items read the open game's own bag text: places and rules change between games.</summary>
+    [Theory]
+    [InlineData(GameVersion.E, "Safari Ball", "A special BALL that is used only in the SAFARI ZONE.")]
+    [InlineData(GameVersion.Pt, "Safari Ball", "A special Poké Ball that is used only in the Great Marsh. It is decorated in a camouflage pattern.")]
+    [InlineData(GameVersion.X, "Soul Dew", "A wondrous orb to be held by either Latios or Latias. It raises both the Sp. Atk and Sp. Def stats.")]
+    [InlineData(GameVersion.SN, "Soul Dew", "A wondrous orb to be held by either Latios or Latias. It raises the power of Psychic- and Dragon-type moves.")]
+    public void ItemsReadTheirGamesOwnText(GameVersion version, string item, string expected)
+    {
+        using var session = new SaveEngineSession(BlankSaveFile.Get(version, "TEST", LanguageID.English), null);
+        var id = session.GetItemNames().ToList().IndexOf(item);
+        Assert.True(id > 0, item);
+        Assert.Equal(expected, session.GetItemDescription(id));
+    }
+
+    /// <summary>Every item id of every game names its art and its text without throwing (Z-A's table holds nulls).</summary>
+    [Theory]
+    [InlineData(GameVersion.C)]
+    [InlineData(GameVersion.E)]
+    [InlineData(GameVersion.Pt)]
+    [InlineData(GameVersion.B2)]
+    [InlineData(GameVersion.X)]
+    [InlineData(GameVersion.UM)]
+    [InlineData(GameVersion.GP)]
+    [InlineData(GameVersion.SW)]
+    [InlineData(GameVersion.BD)]
+    [InlineData(GameVersion.PLA)]
+    [InlineData(GameVersion.SL)]
+    [InlineData(GameVersion.ZA)]
+    public void EveryItemIdNamesItsArtAndText(GameVersion version)
+    {
+        using var session = new SaveEngineSession(BlankSaveFile.Get(version, "TEST", LanguageID.English), null);
+        var art = session.GetItemArtNames();
+        Assert.Equal(session.GetItemNames().Count, art.Count);
+        Assert.All(art, Assert.NotNull);
+        for (var id = 0; id < art.Count; id++)
+            _ = session.GetItemDescription(id);
+    }
+
+    /// <summary>Gen 1-2 bags print no item text: those games keep the general line.</summary>
+    [Fact]
+    public void GameBoyGamesKeepTheGeneralText()
+    {
+        using var session = new SaveEngineSession(BlankSaveFile.Get(GameVersion.C, "TEST", LanguageID.English), null);
+        var id = session.GetItemNames().ToList().IndexOf("Leftovers");
+        Assert.True(id > 0);
+        Assert.Equal(PKForge.Domain.DexFacts.Item("Leftovers"), session.GetItemDescription(id));
+    }
+
+    /// <summary>Every game the engine opens maps to a place in the bag-text order (0 only for Gen 1-2 and odd entries).</summary>
+    [Theory]
+    [InlineData(GameVersion.E, 8)]
+    [InlineData(GameVersion.FR, 11)]
+    [InlineData(GameVersion.HG, 14)]
+    [InlineData(GameVersion.W2, 16)]
+    [InlineData(GameVersion.UM, 20)]
+    [InlineData(GameVersion.SH, 22)]
+    [InlineData(GameVersion.BD, 25)]
+    [InlineData(GameVersion.VL, 27)]
+    [InlineData(GameVersion.C, 0)]
+    public void GamesMapToTheBagTextOrder(GameVersion version, int expected) =>
+        Assert.Equal(expected, SaveEngineSession.ItemTextGame(version));
 
     /// <summary>Bank search mixes generations: a banked Gen 3 item is counted and named by its national id.</summary>
     [Fact]

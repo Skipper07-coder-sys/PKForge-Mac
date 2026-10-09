@@ -1725,7 +1725,9 @@ public sealed class SaveEngineSession : ISaveEngineSession
         var art = new string[names.Count];
         for (var id = 0; id < art.Length; id++)
         {
-            if (MachineItems.ArtName(names[id], _save.Context, _save.Version) is { } disc)
+            // Some tables (Z-A's) hold null for unused ids.
+            var name = names[id] ?? string.Empty;
+            if (MachineItems.ArtName(name, _save.Context, _save.Version) is { } disc)
             {
                 art[id] = disc; // this game's move decides the colour
                 continue;
@@ -1733,7 +1735,7 @@ public sealed class SaveEngineSession : ISaveEngineSession
             // PKHeX's own sprite mapping; an id with no modern twin keeps the game's name.
             var future = renamed ? ItemConverter.GetItemDisplay(id, _save.Context) : 0;
             art[id] = future is > 0 and not ItemNoModernTwin && future < modern.Length && modern[future].Length > 0
-                ? modern[future] : names[id];
+                ? modern[future] : name;
         }
         return _itemArtNames = art;
     }
@@ -1746,8 +1748,40 @@ public sealed class SaveEngineSession : ISaveEngineSession
         // The shared text of "TM01" lists every generation's move; say the one this game teaches.
         if (MachineItems.Move(names[itemId], _save.Context, _save.Version) is { } move && move < GameInfo.Strings.movelist.Length)
             return $"Teaches {GameInfo.Strings.movelist[move]} to a compatible Pokémon.";
-        return DexFacts.Item(GetItemArtNames()[itemId]);
+        // The game's own bag text (Emerald's Safari Ball is for the SAFARI ZONE, not the Great Marsh);
+        // Gen 1-2 bags have none, so they keep the general line.
+        var name = GetItemArtNames()[itemId];
+        var game = ItemTextGame(_save.Version);
+        if (MachineItems.IsMachineName(name) && !ItemTexts.Default.HasOwnText(game))
+            return DexFacts.Item(name);
+        return ItemTexts.Default.For(name, game) ?? DexFacts.Item(name);
     }
+
+    /// <summary>The game's place in PokeAPI's version-group order, as <see cref="ItemTextTable"/> numbers games; 0 = none.</summary>
+    internal static int ItemTextGame(GameVersion version) => version switch
+    {
+        GameVersion.R or GameVersion.S or GameVersion.RS or GameVersion.RSE => 7,
+        GameVersion.E => 8,
+        GameVersion.COLO => 9,
+        GameVersion.XD or GameVersion.CXD => 10,
+        GameVersion.FR or GameVersion.LG or GameVersion.FRLG => 11,
+        GameVersion.D or GameVersion.P or GameVersion.DP => 12,
+        GameVersion.Pt => 13,
+        GameVersion.HG or GameVersion.SS or GameVersion.HGSS => 14,
+        GameVersion.B or GameVersion.W or GameVersion.BW => 15,
+        GameVersion.B2 or GameVersion.W2 or GameVersion.B2W2 => 16,
+        GameVersion.X or GameVersion.Y or GameVersion.XY => 17,
+        GameVersion.AS or GameVersion.OR or GameVersion.ORAS => 18,
+        GameVersion.SN or GameVersion.MN or GameVersion.SM => 19,
+        GameVersion.US or GameVersion.UM or GameVersion.USUM => 20,
+        GameVersion.GP or GameVersion.GE or GameVersion.GG => 21,
+        GameVersion.SW or GameVersion.SH or GameVersion.SWSH => 22,
+        GameVersion.BD or GameVersion.SP or GameVersion.BDSP or GameVersion.BDSPLUMI => 25,
+        GameVersion.PLA => 26,
+        GameVersion.SL or GameVersion.VL or GameVersion.SV => 27,
+        GameVersion.ZA => 30,
+        _ => 0,
+    };
 
     /// <summary>What <see cref="ItemConverter"/> returns for an id with no Gen 4+ counterpart.</summary>
     private const int ItemNoModernTwin = 128;

@@ -14,13 +14,10 @@ internal static class MachineItems
 {
     /// <summary>The move <paramref name="itemName"/> teaches in this game; null for any other item,
     /// or a game whose machine table PKHeX does not carry (Gen 6, Let's Go, Z-A).</summary>
-    public static ushort? Move(string itemName, EntityContext context, GameVersion version)
+    public static ushort? Move(string? itemName, EntityContext context, GameVersion version)
     {
-        if (itemName.Length < 4 || itemName[..2] is not ("TM" or "HM" or "TR")) return null;
-        var digits = itemName.AsSpan(2);
-        foreach (var ch in digits)
-            if (!char.IsAsciiDigit(ch)) return null;
-        var number = int.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture);
+        if (!IsMachineName(itemName)) return null;
+        var number = int.Parse(itemName.AsSpan(2), NumberStyles.None, CultureInfo.InvariantCulture);
         if (Tables(context, version) is not { } tables) return null;
         var (list, first) = itemName[..2] switch
         {
@@ -32,13 +29,23 @@ internal static class MachineItems
         return (uint)index < (uint)list.Length ? list[index] : null;
     }
 
+    /// <summary>"TM01", "HM05", "TR12", "TM001": a machine by its item name, in any game.</summary>
+    public static bool IsMachineName([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? itemName)
+    {
+        // Some tables (Z-A's) hold null for unused ids.
+        if (itemName is null || itemName.Length < 4 || itemName[..2] is not ("TM" or "HM" or "TR")) return false;
+        foreach (var ch in itemName.AsSpan(2))
+            if (!char.IsAsciiDigit(ch)) return false;
+        return true;
+    }
+
     /// <summary>
     /// The art name of a machine: "TM Fire" slugs to PokeAPI's tm-fire disc. PokeAPI draws HMs
     /// in four types only (every HM move is one of them); TRs have no art there, so they keep their name.
     /// </summary>
-    public static string? ArtName(string itemName, EntityContext context, GameVersion version)
+    public static string? ArtName(string? itemName, EntityContext context, GameVersion version)
     {
-        if (itemName.StartsWith("TR", StringComparison.Ordinal) || Move(itemName, context, version) is not { } move) return null;
+        if (!IsMachineName(itemName) || itemName.StartsWith("TR", StringComparison.Ordinal) || Move(itemName, context, version) is not { } move) return null;
         var type = MoveInfo.GetType(move, context);
         if (type >= TypeFacts.Count) return null;
         var hidden = itemName.StartsWith("HM", StringComparison.Ordinal) && type is 0 or 1 or 2 or 10; // Normal, Fighting, Flying, Water
