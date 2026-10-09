@@ -344,6 +344,7 @@ public static class Kit
             timer.Interval = TimeSpan.FromMilliseconds(90);
             timer.Tick += (_, _) =>
             {
+                if (!AppVisibility.Visible) return; // a covered Mac window: the stroll waits
                 tick++;
                 x += 2.2f;
                 if (x > (float)walker.CanvasSize.Width + 40f)

@@ -143,7 +143,7 @@ public static class PartyView
 
     /// <summary>Slots 0, 2, 4 run down the left column; 1, 3, 5 down the right one, a
     /// half-step lower, like the games' party screen.</summary>
-    private static SKRect SlotRect(SKImageInfo info, int index)
+    internal static SKRect SlotRect(SKImageInfo info, int index)
     {
         var g = Grid(info);
         var col = index % Columns;

@@ -32,6 +32,18 @@ public static class PksmPaint
             c.DrawLine(r.Left, MathF.Round(y), r.Right, MathF.Round(y), line);
     }
 
+    /// <summary>
+    /// One cell of <see cref="LogoGrid"/> as an image that, repeated from the view's origin, is the full
+    /// drawing pixel for pixel. Cut from the middle of a 3×3-cell drawing, so lines that straddle a cell
+    /// edge keep their full width. Lets a big window tile 4 KB instead of keeping a window-sized bitmap.
+    /// </summary>
+    public static SKImage LogoGridTile(int cell = 32, float lineWidth = 3)
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(cell * 3, cell * 3, SKColorType.Rgba8888, SKAlphaType.Premul));
+        LogoGrid(surface.Canvas, new SKRect(0, 0, cell * 3, cell * 3), cell, lineWidth);
+        return surface.Snapshot(new SKRectI(cell, cell, cell * 2, cell * 2));
+    }
+
     // ---------- Colour math (shared by every drawn surface) ----------
 
     public static SKColor Mix(SKColor a, SKColor b, float t) => new(

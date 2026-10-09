@@ -453,3 +453,121 @@ def test_drag_and_drop(app, ctx):
 
     check = subprocess.run([sys.executable, str(TOOLS / "verify_gen3_save.py"), str(save)], capture_output=True, text=True)
     assert check.stdout.startswith("OK"), check.stdout + check.stderr
+
+
+def test_drag_into_and_within_the_party(app, ctx):
+    """Party drags, read back from the file (Gen 3 internal: Aron 382, Trapinch 332, Blaziken 282, Gardevoir 394).
+    A full party refuses a box Pokémon (the games' rule) and says why; with room, a drag over the left edge of
+    box 1 lands it in the party (appended); and two party Pokémon swap by drag."""
+    save = open_save(app, ctx)
+
+    def party_file():
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            _gen3().main(str(save), 1)
+        section = out.getvalue().split("box 1:")[0]
+        return {int(m.group(1)): int(m.group(2)) for m in re.finditer(r"slot (\d+): species (\d+)", section)}
+
+    before = save.read_bytes()
+    reply = app.cmd("drag 0 5 -1")                 # Aron over the left edge onto the full party: refused, and why
+    app.settle()
+    assert "PARTY" in reply and "carrying=False" in reply, reply
+    assert "party is full" in app.state()["box.status"], app.state()["box.status"]
+    assert save.read_bytes() == before, "a refused move wrote the save"
+
+    reply = app.cmd("drag 5 7 1")                  # Trapinch from the full party onto Castform: no room to swap
+    app.settle()
+    assert "can't swap" in app.state()["box.status"], app.state()["box.status"]
+    assert save.read_bytes() == before
+    app.press("L")
+    app.settle()
+    reply = app.cmd("drag 5 8 1")                  # Trapinch over the right edge into box 1's empty slot 9
+    app.settle()
+    assert "01 / 14" in reply and species_at(app).get(8) == 328, reply + app.slots()
+    reply = app.cmd("drag 0 5 -1")                 # Aron over the left edge: the party has room now
+    app.settle()
+    assert "PARTY" in reply, reply
+    file = party_file()
+    assert file.get(6) == 382 and 332 not in file.values(), file
+    assert _decoded(save, 1).get(9) == 332, _decoded(save, 1)
+
+    reply = app.cmd("drag 0 1")                    # Blaziken onto Gardevoir inside the party
+    app.settle()
+    assert "carrying=False" in reply, reply
+    file = party_file()
+    assert (file.get(1), file.get(2)) == (394, 282), file
+    check = subprocess.run([sys.executable, str(TOOLS / "verify_gen3_save.py"), str(save)], capture_output=True, text=True)
+    assert check.stdout.startswith("OK"), check.stdout + check.stderr
+
+
+def _footprint(ctx) -> float:
+    out = subprocess.run(["footprint", str(ctx.inst.proc_pid)], capture_output=True, text=True).stdout
+    m = re.search(r"Footprint: ([\d.]+) MB", out)
+    return float(m.group(1)) if m else -1
+
+
+def _canvas_mb(app) -> float:
+    return float(re.search(r"total ([\d.]+) MB", app.cmd("canvases")).group(1))
+
+
+def test_mac_window_memory_and_resize(app, ctx):
+    """Mac-only costs an Android handheld never has: a big Retina window kept in drawn bitmaps,
+    and live window resizing (every drawn view re-rasterizes at the new size)."""
+    open_save(app, ctx)
+    app.cmd("select 1 0")
+    app.settle()
+    ctx.metric("drawn bitmaps MB (home + box)", _canvas_mb(app))
+    ctx.metric("footprint MB after open", _footprint(ctx))
+    for _ in range(14):
+        app.press("R")
+        app.settle()
+    ctx.metric("footprint MB after all 14 boxes", _footprint(ctx))
+    paints, times = [], []
+    for w, h in ((1100, 680), (1500, 900), (1280, 760), (1700, 1000), (1280, 760)):
+        app.perf(clear=True)
+        reply = app.cmd(f"resize {w} {h}")
+        times.append(float(re.search(r"after ([\d.]+) ms", reply).group(1)))
+        paints.append(sum(t for _, n, t in app.perf() if t is not None and n.startswith("paint")))
+    ctx.metric("resize → settled (median)", sorted(times)[len(times) // 2])
+    ctx.metric("resize: box paint ms (median)", sorted(paints)[len(paints) // 2])
+    app.mem(gc=True)
+    rss = app.mem()["rss"]
+    ctx.metric("process RSS MB after resizes", rss)
+    footprint = subprocess.run(["footprint", str(ctx.inst.proc_pid)], capture_output=True, text=True).stdout
+    if m := re.search(r"Footprint: ([\d.]+) MB", footprint):
+        ctx.metric("process footprint MB", float(m.group(1)))
+    if m := re.search(r"([\d.]+) MB\s+\S+\s+\S+\s+\d+\s+CoreAnimation", footprint):
+        ctx.metric("CoreAnimation dirty MB", float(m.group(1)))
+
+
+def test_covered_window_pauses_animation(app, ctx):
+    """A Mac keeps a covered window (or one on another desktop) 'active', unlike Android: animations must pause
+    on the window's visibility, resume after, and close nothing. Minimizing pauses through the lifecycle (OnSleep)."""
+    finish_onboarding(app)
+    if pad(app) == "PadMenu":
+        app.press("B")
+        app.cmd("sleep 250")
+    app.tap("Poképark")
+    app.cmd("sleep 1200")
+    assert pad(app) == "PokeparkPage"
+
+    def park_paints(ms):
+        app.perf(clear=True)
+        app.cmd(f"sleep {ms}")
+        return len(perf_took(app, "paint park"))
+
+    assert park_paints(500) >= 10, "the park should animate while visible"
+    app.cmd("visibility hidden")
+    assert park_paints(1000) == 0, "the park kept painting behind other windows"
+    ctx.metric("idle CPU % (Poképark, covered)", ctx.inst.cpu_percent(2))
+    app.cmd("visibility visible")
+    assert park_paints(500) >= 10, "the park did not resume when uncovered"
+    assert pad(app) == "PokeparkPage", "uncovering should find the park as it was"
+    app.cmd("visibility real")                     # from here on, what macOS reports
+    app.cmd("window minimize")
+    app.cmd("sleep 800")
+    assert "visible=False" in app.cmd("visibility"), "a minimized window should count as unseen"
+    assert park_paints(800) == 0, "the park painted while minimized"
+    app.cmd("window restore")
+    app.cmd("sleep 800")
+    assert park_paints(500) >= 10, "the park did not resume after restore"

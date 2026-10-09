@@ -64,7 +64,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         _partyPulseStart = Environment.TickCount64;
         _partyPulseTimer = Dispatcher.CreateTimer();
         _partyPulseTimer.Interval = TimeSpan.FromMilliseconds(45);
-        _partyPulseTimer.Tick += (_, _) => _frame.Request();
+        _partyPulseTimer.Tick += (_, _) => { if (AppVisibility.Visible) _frame.Request(); };
         _partyPulseTimer.Start();
     }
 

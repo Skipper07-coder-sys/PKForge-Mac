@@ -12,6 +12,7 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
     {
 #if MACCATALYST
         MacSecondaryDisplayHost.ApplyMacDefault();
+        MacWindowVisibility.Start();
 #else
         // iPhone: reopen saves picked outside the app before anything reads them.
         IosSecurityScope.RestoreAll();

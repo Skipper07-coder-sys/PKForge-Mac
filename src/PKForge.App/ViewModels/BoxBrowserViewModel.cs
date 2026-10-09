@@ -868,6 +868,22 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
             return;
         }
 
+        // As in the games, a box Pokémon only joins a party with room (it is added at the end,
+        // never swapped in): say so instead of a bare "Nothing changed".
+        var partyFull = _slots.Count(x => x.Box == -1 && x.Species is not null) >= 6;
+        if (partyFull && target.Box == -1 && source.Box != -1)
+        {
+            Status = "The party is full - move a party Pokémon to a box first. Nothing was written.";
+            return;
+        }
+        // A party Pokémon dropped on a box Pokémon swaps them, so the box one needs room in the party.
+        if (partyFull && source.Box == -1 && target.Box != -1
+            && _slots.FirstOrDefault(x => x.Box == target.Box && x.Slot == target.Slot)?.Species is not null)
+        {
+            Status = "The party is full, so it can't swap - drop it on an empty slot. Nothing was written.";
+            return;
+        }
+
         var documentId = session.Document.DocumentId;
         var writing = false;
         try

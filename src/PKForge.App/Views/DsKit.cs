@@ -162,6 +162,8 @@ public sealed class DsFolderButton : Grid
             // A closed menu's button stays "selected": stop once it is off screen (no handler).
             while (_selected && generation == _marqueeGeneration && line.Handler is not null)
             {
+                // A covered Mac window: hold the line still until someone can see it.
+                while (!Services.AppVisibility.Visible && _selected && generation == _marqueeGeneration) await Task.Delay(500);
                 var duration = (uint)Math.Clamp(overflow * 45, 1800, 6500);
                 await line.TranslateToAsync(-overflow, 0, duration, Easing.Linear);
                 if (!_selected || generation != _marqueeGeneration) return;
@@ -455,8 +457,20 @@ public static class DsChrome
         => Kit.HintBar(hints);
 
     /// <summary>The logo's navy/cobalt grid behind every global menu body.</summary>
-    public static SKCanvasView GridBackground()
+    public static View GridBackground()
     {
+#if MACCATALYST || IOS
+        // On a handheld this canvas is screen-sized. A Mac window is far bigger and resizes: every page
+        // kept a window-sized bitmap of it (12 MB at 1280 pt on Retina, ~60 MB full screen on 5K, plus
+        // Core Animation's copy) and redrew it on every resize step. UIKit tiles one 32 px cell instead:
+        // the same picture pixel for pixel (PksmPaint.LogoGridTile, unit-tested), a few KB, no redraw.
+        var view = new ContentView { InputTransparent = true };
+        view.HandlerChanged += (_, _) =>
+        {
+            if (view.Handler?.PlatformView is UIKit.UIView platform) platform.BackgroundColor = GridPattern();
+        };
+        return view;
+#else
         var view = new SKCanvasView { InputTransparent = true };
         view.PaintSurface += (_, a) =>
         {
@@ -464,5 +478,19 @@ public static class DsChrome
             PksmPaint.LogoGrid(c, new SKRect(0, 0, a.Info.Width, a.Info.Height));
         };
         return view;
+#endif
     }
+
+#if MACCATALYST || IOS
+    /// <summary>The grid cell as a pattern colour: 32 device pixels per cell, as the canvas drew it.</summary>
+    private static UIKit.UIColor GridPattern()
+    {
+        using var tile = PksmPaint.LogoGridTile();
+        using var png = tile.Encode(SKEncodedImageFormat.Png, 100);
+        var scale = UIKit.UIScreen.MainScreen.Scale;
+        var image = UIKit.UIImage.LoadFromData(Foundation.NSData.FromArray(png.ToArray()), scale)
+            ?? throw new InvalidOperationException("The grid tile did not decode.");
+        return UIKit.UIColor.FromPatternImage(image);
+    }
+#endif
 }

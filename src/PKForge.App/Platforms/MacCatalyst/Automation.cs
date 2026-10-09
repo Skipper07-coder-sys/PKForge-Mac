@@ -27,6 +27,17 @@ internal static class Automation
         var listener = new TcpListener(IPAddress.Loopback, port);
         listener.Start();
         AppLog.Info("automation", $"Listening on 127.0.0.1:{port}");
+        // Lifecycle as the Mac reports it, so tests can see what pauses the app (Android pauses on leave; a Mac may not).
+        foreach (var (name, note) in new[]
+        {
+            ("scene: will deactivate", UIKit.UIScene.WillDeactivateNotification),
+            ("scene: did activate", UIKit.UIScene.DidActivateNotification),
+            ("scene: did enter background", UIKit.UIScene.DidEnterBackgroundNotification),
+            ("scene: will enter foreground", UIKit.UIScene.WillEnterForegroundNotification),
+        })
+            Foundation.NSNotificationCenter.DefaultCenter.AddObserver(note, _ => Perf.Mark(name));
+        App.Suspended += () => Perf.Mark("app: OnSleep");
+        App.Resumed += () => Perf.Mark("app: OnResume");
         _ = Task.Run(async () =>
         {
             while (true)
@@ -174,9 +185,13 @@ internal static class Automation
                 var flags = BindingFlags.Instance | BindingFlags.NonPublic;
                 SkiaSharp.Views.Maui.Controls.SKCanvasView? canvas = null;
                 Views.BoxBrowserPage? page = null;
-                SkiaSharp.SKPoint Center(int slot) => Services.GetRequiredService<BoxBrowserViewModel>().BoxIndex == -1
-                    ? throw new InvalidOperationException("drag points are wired for box slots")
-                    : (Views.BoxGridRenderer.SlotRect(canvas!.CanvasSize, slot) is var r ? new SkiaSharp.SKPoint(r.MidX, r.MidY) : default);
+                SkiaSharp.SKPoint Center(int slot)
+                {
+                    var r = Services.GetRequiredService<BoxBrowserViewModel>().BoxIndex == -1
+                        ? Views.PartyView.SlotRect(new SkiaSharp.SKImageInfo((int)canvas!.CanvasSize.Width, (int)canvas.CanvasSize.Height), slot)
+                        : Views.BoxGridRenderer.SlotRect(canvas!.CanvasSize, slot);
+                    return new SkiaSharp.SKPoint(r.MidX, r.MidY);
+                }
                 void Send(SkiaSharp.Views.Maui.SKTouchAction action, SkiaSharp.SKPoint at) =>
                     typeof(Views.BoxBrowserPage).GetMethod("Touch", flags)!.Invoke(page,
                         [canvas, new SkiaSharp.Views.Maui.SKTouchEventArgs(1, action, at, action != SkiaSharp.Views.Maui.SKTouchAction.Released)]);
@@ -218,6 +233,90 @@ internal static class Automation
 
                 static int Wrap(int index, int count) => index > count - 1 ? -1 + (index - count) : index < -1 ? count + 1 + index : index;
             }
+            case "window":
+            {
+                // window hide|unhide|minimize|restore|state: macOS's own NSApplication / NSWindow calls.
+                var what = Arg(1);
+                return await OnMain(() =>
+                {
+                    var app = ObjC(ObjCClass("NSApplication"), "sharedApplication");
+                    var windows = ObjC(app, "windows");
+                    var main = ObjC(windows, "firstObject");
+                    switch (what)
+                    {
+                        case "hide": ObjC(app, "hide:", IntPtr.Zero); break;
+                        case "unhide": ObjC(app, "unhideWithoutActivation"); break;
+                        case "minimize": ObjC(main, "miniaturize:", IntPtr.Zero); break;
+                        case "restore": ObjC(main, "deminiaturize:", IntPtr.Zero); break;
+                    }
+                    var scene = UIKit.UIApplication.SharedApplication.ConnectedScenes.ToArray<UIKit.UIScene>().FirstOrDefault();
+                    return $"scene {scene?.ActivationState} · hidden={ObjCBool(app, "isHidden")} minimized={ObjCBool(main, "isMiniaturized")} visible={ObjCBool(main, "isVisible")}";
+                });
+            }
+            case "resize":
+            {
+                // resize W H (points): the Mac window, as a drag of its corner would; returns once laid out and painted.
+                var w = IntArg(1, 1280);
+                var h = IntArg(2, 760);
+                var started = Stopwatch.GetTimestamp();
+                await OnMain(() =>
+                {
+                    var scene = UIKit.UIApplication.SharedApplication.ConnectedScenes.ToArray<UIKit.UIScene>().OfType<UIKit.UIWindowScene>().First();
+                    var frame = scene.EffectiveGeometry.SystemFrame;
+                    scene.RequestGeometryUpdate(new UIKit.UIWindowSceneGeometryPreferencesMac(new CoreGraphics.CGRect(frame.X, frame.Y, w, h)), error =>
+                        AppLog.Warn("automation", $"resize refused: {error.LocalizedDescription}"));
+                    return "";
+                });
+                var settled = await SettleAsync(5000);
+                var size = await OnMain(() => Application.Current?.Windows.FirstOrDefault() is { } win ? $"{win.Width:0}x{win.Height:0}" : "?");
+                return $"window {size} after {Stopwatch.GetElapsedTime(started).TotalMilliseconds:0.0} ms";
+            }
+            case "visibility":
+                // visibility [hidden|visible]: simulates the window being covered / uncovered; always
+                // reports AppVisibility and each AppKit window's real occlusion state.
+                return await OnMain(() =>
+                {
+                    if (Arg(1) == "hidden") { MacWindowVisibility.Simulated = false; AppVisibility.Set(false); }
+                    if (Arg(1) == "visible") { MacWindowVisibility.Simulated = true; AppVisibility.Set(true); }
+                    if (Arg(1) == "real") MacWindowVisibility.Simulated = null;
+                    var windows = string.Join(", ", MacAppKit.Windows().Select(w =>
+                        $"{(MacAppKit.CallBool(w, "isVisible") ? "shown" : "ordered out")}/{((MacAppKit.CallNUInt(w, "occlusionState") & 2) != 0 ? "unoccluded" : "occluded")}"));
+                    return $"app visible={AppVisibility.Visible} · windows: {windows}";
+                });
+            case "canvases":
+                // Every drawn view on the visible page and the ones kept below it in the stack:
+                // pixel size and backing memory (a raster canvas keeps a full bitmap of itself).
+                return await OnMain(() =>
+                {
+                    var sb = new StringBuilder();
+                    double total = 0;
+                    var window = Application.Current?.Windows.FirstOrDefault();
+                    var pages = window?.Page?.Navigation.NavigationStack.Concat(window.Page.Navigation.ModalStack) ?? [];
+                    foreach (var page in pages)
+                    {
+                        int count = 0; double mb = 0;
+                        void Walk(IVisualTreeElement node, bool shown)
+                        {
+                            var visible = shown && Visible(node);
+                            if (node is SkiaSharp.Views.Maui.Controls.SKCanvasView c)
+                            {
+                                count++;
+                                var size = c.CanvasSize;
+                                var m = size.Width * size.Height * 4 / 1048576.0;
+                                mb += m;
+                                if (Arg(1) == "all" || m >= 1)
+                                    sb.Append(CultureInfo.InvariantCulture, $"  {page.GetType().Name,-18} {size.Width,6:0}x{size.Height,-6:0} {m,6:0.0} MB {(visible ? "" : "(hidden)")}\n");
+                            }
+                            else if (node.GetType().Name.Contains("SKGLView", StringComparison.Ordinal)) sb.Append($"  {page.GetType().Name,-18} SKGLView (GPU)\n");
+                            foreach (var child in Children(node)) Walk(child, visible);
+                        }
+                        Walk(page, true);
+                        total += mb;
+                        sb.Append(CultureInfo.InvariantCulture, $"{page.GetType().Name}: {count} raster canvases, {mb:0.0} MB\n");
+                    }
+                    sb.Append(CultureInfo.InvariantCulture, $"total {total:0.0} MB · display scale {UIKit.UIScreen.MainScreen.Scale}");
+                    return sb.ToString();
+                });
             case "menu-save":
                 return await OnMain(() => AppDelegate.SaveFromMenu() ? "saving" : "disabled");
             case "pick":
@@ -292,6 +391,11 @@ internal static class Automation
     /// <summary>Only the lines containing the filter (case-insensitive); the header line always stays.</summary>
     private static string Filter(string texts, string filter) =>
         filter.Length == 0 ? texts : string.Join('\n', texts.Split('\n').Where((line, i) => i == 0 || line.Contains(filter, StringComparison.OrdinalIgnoreCase)));
+
+    private static IntPtr ObjCClass(string name) => MacAppKit.Class(name);
+    private static IntPtr ObjC(IntPtr target, string selector) => MacAppKit.Call(target, selector);
+    private static IntPtr ObjC(IntPtr target, string selector, IntPtr argument) => MacAppKit.Call(target, selector, argument);
+    private static bool ObjCBool(IntPtr target, string selector) => MacAppKit.CallBool(target, selector);
 
     // ---- reading the screen -------------------------------------------------------------
 

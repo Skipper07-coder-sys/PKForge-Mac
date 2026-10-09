@@ -111,8 +111,8 @@ public sealed class PokeparkPage : ContentPage, IPadHandler
         _secondClaim?.Activate();
         IPlatformApplication.Current?.Services.GetService<PokeparkJournalState>()?.Open();
         IPlatformApplication.Current?.Services.GetService<GamepadRouter>()?.Push(this);
-        App.Resumed += Resume; App.Suspended += Suspend;
-        _clock.Start(); _timer.Start();
+        App.Resumed += Resume; App.Suspended += Suspend; AppVisibility.Changed += VisibilityChanged;
+        Resume();
         // The persisted roster is cheap and gives the first paint immediately.
         // Initialization only scans on first use and refreshes this view afterwards.
         Reload();
@@ -142,14 +142,21 @@ public sealed class PokeparkPage : ContentPage, IPadHandler
         _secondaryShowCts?.Cancel();
         _secondaryShowCts?.Dispose();
         _secondaryShowCts = null;
-        App.Resumed -= Resume; App.Suspended -= Suspend;
+        App.Resumed -= Resume; App.Suspended -= Suspend; AppVisibility.Changed -= VisibilityChanged;
         IPlatformApplication.Current?.Services.GetService<GamepadRouter>()?.Remove(this);
         if (WidgetDirty) _ = PublishWidgetAsync();
         IPlatformApplication.Current?.Services.GetService<PokeparkJournalState>()?.Clear();
         _secondClaim?.Release();
         base.OnDisappearing();
     }
-    private void Resume() { if (_active) { _clock.Start(); _timer.Start(); } }
+    private void Resume() { if (_active && AppVisibility.Visible) { _clock.Start(); _timer.Start(); } }
+
+    /// <summary>Nobody can see the window (Mac: covered, another desktop): the park holds still, nothing closes.</summary>
+    private void VisibilityChanged(bool visible)
+    {
+        if (visible) Resume();
+        else { _timer.Stop(); _clock.Stop(); }
+    }
     private void Suspend()
     {
         _offlineJournal.MarkCurrent();
