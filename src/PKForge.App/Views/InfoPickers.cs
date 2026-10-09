@@ -202,14 +202,19 @@ public static class InfoPickers
         // must both come from it. The modern names only fill in effect descriptions.
         var modern = data.ItemNames;
         var names = session?.GetItemNames() is { Count: > 0 } n ? n : modern;
+        // Effects are filed under modern names (Gen 3's "Parlyz Heal" is "Paralyze Heal").
+        var art = session?.GetItemArtNames() is { Count: > 0 } a ? a : names;
         var legal = session is not null ? Info?.GetHeldItems(session).ToHashSet() ?? [] : [];
+        // The sprite pack covers modern items; Gen 2-3's own (Mail) are fetched on demand, for next time.
+        if (session is { Generation: <= 3 } && legal.Count > 0)
+            Services.ItemArt.WarmMissing(legal.Where(id => (uint)id < (uint)art.Count).Select(id => art[id]));
 
         var items = new List<PickItem>(names.Count) { new(0, "(none)", Detail: "Holds nothing.") };
         var rows = new List<PickItem>();
         for (var id = 1; id < names.Count; id++)
         {
             if (names[id].Length == 0) continue;
-            var description = DexFacts.Item(names[id]);
+            var description = DexFacts.Item(BoxBrowserPage.ArtName(art, names, id));
             rows.Add(new PickItem(id, names[id], iconFor(id), Blank(description)) { Muted = legal.Count > 0 && !legal.Contains(id) });
         }
         // Holdable first, in the game's id order (it groups balls, berries, plates…).

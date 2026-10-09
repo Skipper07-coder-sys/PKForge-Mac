@@ -1041,6 +1041,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     {
         var data = IPlatformApplication.Current?.Services.GetService<IGameDataService>();
         var itemNames = data is null ? [] : SaveItemNames(data);
+        var artNames = data is null ? [] : SaveItemArtNames(data);
         var all = _viewModel.AllSlots;
         var tally = HeldItemSearch.Tally(all.Where(s => s.Species is not null).Select(s => s.HeldItem));
         if (tally.Count == 0)
@@ -1054,7 +1055,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         foreach (var (id, n) in tally)
         {
             var name = HeldItemSearch.NameOf(itemNames, id);
-            var cached = Path.Combine(directory, ItemArt.Slug(name) + ".png");
+            var cached = Path.Combine(directory, ItemArt.Slug(HeldItemSearch.NameOf(artNames, id)) + ".png");
             items.Add(new PickItem(id, name, File.Exists(cached) ? cached : null, $"{n} Pokémon"));
         }
         var item = await PickerMenu.ShowAsync(_hostGrid, "Find held item", items);
@@ -2727,6 +2728,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             // Resolve this once from the open save. Leaving it empty made every row
             // render as #id and filtered every legal id out of ADD ITEM.
             _itemNames = session.GetItemNames();
+            _itemArtNames = session.GetItemArtNames();
             _slotSeed = slotSeed;
 
             var title = new HorizontalStackLayout
@@ -2827,6 +2829,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         // The OPEN GAME's item table: Gen 1 Rare Candy lives at a different index than
         // in the modern list, which is what misnamed everything before.
         private readonly IReadOnlyList<string> _itemNames;
+        private readonly IReadOnlyList<string> _itemArtNames; // the modern names, for sprites
         private string ItemName(int id) =>
             id < _itemNames.Count && _itemNames[id].Length > 0 ? _itemNames[id] : $"#{id}";
 
@@ -2929,7 +2932,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         private async Task LoadIconsAsync(IReadOnlyList<BagItem> items, IReadOnlyList<Image> targets)
         {
             var placeholder = ItemArt.PlaceholderPath();
-            var paths = await Task.WhenAll(items.Select(i => ItemArt.GetAsync(ItemName(i.Id))));
+            var paths = await Task.WhenAll(items.Select(i => ItemArt.GetAsync(ArtName(_itemArtNames, _itemNames, i.Id))));
             for (var i = 0; i < targets.Count && i < paths.Length; i++)
                 targets[i].Source = ImageSource.FromFile(paths[i] ?? placeholder);
         }
@@ -3030,14 +3033,14 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             var placeholder = ItemArt.PlaceholderPath();
             var legal = legalIds.Select(id =>
             {
-                var cached = System.IO.Path.Combine(itemDirectory, ItemArt.Slug(gameItems[id]) + ".png");
+                var cached = System.IO.Path.Combine(itemDirectory, ItemArt.Slug(ArtName(_itemArtNames, gameItems, id)) + ".png");
                 return new PickItem(id, gameItems[id], File.Exists(cached) ? cached : placeholder);
             }).ToList();
             Report($"Adding to {pouchName} - {legal.Count} items");
             _ = Task.Run(async () =>
             {
                 foreach (var id in legalIds)
-                    await ItemArt.GetAsync(gameItems[id]);
+                    await ItemArt.GetAsync(ArtName(_itemArtNames, gameItems, id));
             });
             PickItem? picked;
             try
@@ -4415,7 +4418,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         var ability = FocusBorder(NamedPicker("ABILITY", nameof(BoxBrowserViewModel.EditAbility), data.AbilityNames,
             AbilityItems, shaded: false), "ABILITY", async () => await OpenNamedPickerAsync("ABILITY", nameof(BoxBrowserViewModel.EditAbility), AbilityItems));
         var item = FocusBorder(NamedPicker("HELD ITEM", nameof(BoxBrowserViewModel.EditHeldItem), new LiveNames(() => SaveItemNames(data)),
-            () => ItemsWithIcons(SaveItemNames(data)), shaded: true, open: OpenItem), "Held item", OpenItem);
+            () => ItemsWithIcons(SaveItemNames(data), SaveItemArtNames(data)), shaded: true, open: OpenItem), "Held item", OpenItem);
         // Abilities start in Gen 3 and held items in Gen 2; Gen 1 stores neither.
         ability.IsVisible = (_sessionsFor()?.Generation ?? 3) >= 3;
         item.IsVisible = (_sessionsFor()?.Generation ?? 3) >= 2;
@@ -5088,7 +5091,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         {
             var names = SaveItemNames(data);
             if ((uint)id >= (uint)names.Count) return placeholder;
-            var cached = System.IO.Path.Combine(directory, ItemArt.Slug(names[id]) + ".png");
+            var cached = System.IO.Path.Combine(directory, ItemArt.Slug(ArtName(SaveItemArtNames(data), names, id)) + ".png");
             return File.Exists(cached) ? cached : placeholder;
         }
         var picked = await InfoPickers.ShowHeldItemsAsync(_hostGrid, "Held item", data, _sessionsFor(),
@@ -5139,14 +5142,14 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         IPlatformApplication.Current?.Services.GetService<ISaveSessionService>()?.Current?.Document.DocumentId;
 
     /// <summary>Item pick list with sprites for everything already in the icon cache (misses warm in the background).</summary>
-    private static List<PickItem> ItemsWithIcons(IReadOnlyList<string> names)
+    private static List<PickItem> ItemsWithIcons(IReadOnlyList<string> names, IReadOnlyList<string> art)
     {
         var items = new List<PickItem>(names.Count) { new(0, "(none)") };
         var directory = System.IO.Path.Combine(AppPaths.Data, "items");
         for (var id = 1; id < names.Count; id++)
         {
             if (names[id].Length == 0) continue;
-            var cached = System.IO.Path.Combine(directory, ItemArt.Slug(names[id]) + ".png");
+            var cached = System.IO.Path.Combine(directory, ItemArt.Slug(ArtName(art, names, id)) + ".png");
             items.Add(new PickItem(id, names[id], File.Exists(cached) ? cached : ItemArt.PlaceholderPath()));
         }
         return items;
@@ -5266,6 +5269,14 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     /// </summary>
     private IReadOnlyList<string> SaveItemNames(IGameDataService data) =>
         _sessionsFor()?.GetItemNames() is { Count: > 0 } names ? names : data.ItemNames;
+
+    /// <summary>The open save's item ids by their modern names, for sprites (Gen 3's "Parlyz Heal" is "Paralyze Heal").</summary>
+    private IReadOnlyList<string> SaveItemArtNames(IGameDataService data) =>
+        _sessionsFor()?.GetItemArtNames() is { Count: > 0 } names ? names : data.ItemNames;
+
+    /// <summary>The name an item's sprite and description are filed under: its modern name when the table has one.</summary>
+    internal static string ArtName(IReadOnlyList<string> art, IReadOnlyList<string> names, int id) =>
+        (uint)id < (uint)art.Count && art[id].Length > 0 ? art[id] : (uint)id < (uint)names.Count ? names[id] : "";
 
     /// <summary>A name list read afresh on every lookup, for bindings made once but shown for whichever save is open.</summary>
     private sealed class LiveNames(Func<IReadOnlyList<string>> source) : IReadOnlyList<string>

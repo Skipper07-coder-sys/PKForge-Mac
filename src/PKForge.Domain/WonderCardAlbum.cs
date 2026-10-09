@@ -388,7 +388,7 @@ public static class WonderCardAlbum
     public static string Normalize(string? text)
     {
         if (string.IsNullOrEmpty(text)) return "";
-        var decomposed = text.Normalize(NormalizationForm.FormD);
+        var decomposed = Diacritics.Decompose(text);
         var sb = new StringBuilder(decomposed.Length);
         foreach (var c in decomposed)
             if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)

@@ -111,7 +111,7 @@ public static class DexFacts
     /// <summary>Lower-case ASCII letters and digits only ("Poké Ball" → "pokeball"); the build script mirrors it.</summary>
     public static string NormalizeName(string name)
     {
-        var folded = name.Normalize(NormalizationForm.FormKD);
+        var folded = Diacritics.Decompose(name, NormalizationForm.FormKD);
         var sb = new StringBuilder(folded.Length);
         foreach (var ch in folded)
             if (char.IsAscii(ch) && char.IsLetterOrDigit(ch))

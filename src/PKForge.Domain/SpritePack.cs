@@ -46,16 +46,25 @@ public static class SpritePack
     public static string ItemSlug(string itemName)
     {
         ArgumentNullException.ThrowIfNull(itemName);
-        var folded = itemName.ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD);
+        var folded = Diacritics.Decompose(itemName.ToLowerInvariant());
         var sb = new System.Text.StringBuilder(folded.Length);
         foreach (var ch in folded)
         {
             if (char.IsAsciiLetterOrDigit(ch)) sb.Append(ch);
+            else if (ch is '\'' or '’') continue; // "King’s Rock" is kings-rock, not king-s-rock
             else if (char.GetUnicodeCategory(ch) is not System.Globalization.UnicodeCategory.NonSpacingMark)
                 sb.Append('-');
         }
-        return sb.ToString().Replace("--", "-").Trim('-');
+        var slug = sb.ToString().Replace("--", "-").Trim('-');
+        return PokeApiOldNames.TryGetValue(slug, out var old) ? old : slug;
     }
+
+    /// <summary>Items the games renamed whose PokeAPI sprite kept the old name.</summary>
+    private static readonly Dictionary<string, string> PokeApiOldNames = new(StringComparer.Ordinal)
+    {
+        ["upgrade"] = "up-grade",
+        ["leek"] = "stick",
+    };
 
     /// <summary>
     /// True when an archive entry name is a plain file inside one of the pack's folders

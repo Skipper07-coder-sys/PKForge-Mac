@@ -283,7 +283,9 @@ public sealed class PickerMenu : IPadHandler
 
     private static View BuildRow(PickerMenu tapOwner)
     {
-        var icon = new Image { WidthRequest = 26, HeightRequest = 26, IsVisible = false, VerticalOptions = LayoutOptions.Center };
+        // Beside the name, not centred on the row: a row half under the list's edge (a long
+        // effect line below its name) still shows its sprite next to the name you can see.
+        var icon = new Image { WidthRequest = 26, HeightRequest = 26, IsVisible = false, VerticalOptions = LayoutOptions.Start };
         icon.SetBinding(Image.SourceProperty, new Binding(nameof(PickItem.IconPath)));
         icon.SetBinding(VisualElement.IsVisibleProperty, new Binding(nameof(PickItem.IconPath), converter: NotNull));
 

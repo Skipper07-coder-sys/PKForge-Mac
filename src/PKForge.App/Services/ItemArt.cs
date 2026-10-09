@@ -60,6 +60,22 @@ public static class ItemArt
         }
     }
 
+    /// <summary>
+    /// Fetches, in the background, the sprites of <paramref name="itemNames"/> not on disk yet, so
+    /// a picker shows them next time. The sprite pack holds the modern items only; older ones (Gen 3
+    /// Mail) arrive this way. Machines are skipped: PokeAPI draws TMs by type, never by number.
+    /// </summary>
+    public static void WarmMissing(IEnumerable<string> itemNames)
+    {
+        var wanted = itemNames.Where(n => !string.IsNullOrWhiteSpace(n) && !IsMachine(Slug(n)) && !IsCachedOrKnownMissing(n))
+            .Distinct().ToList();
+        if (wanted.Count > 0)
+            _ = Task.Run(() => Task.WhenAll(wanted.Select(GetAsync)));
+    }
+
+    private static bool IsMachine(string slug) =>
+        slug.Length > 2 && slug[..2] is "tm" or "hm" or "tr" && slug[2..].All(char.IsAsciiDigit);
+
     private static bool IsFreshMiss(string miss)
     {
         try
@@ -82,8 +98,10 @@ public static class ItemArt
     /// </summary>
     public static string PlaceholderPath()
     {
+        if (_placeholder is { } known) return known;
         var path = Path.Combine(AppPaths.Data, "items", "_placeholder.png");
-        if (File.Exists(path)) return path;
+        // Older builds wrote a tile no decoder could read: replace it rather than reuse it.
+        if (IsPng(path)) return _placeholder = path;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -104,11 +122,32 @@ public static class ItemArt
                     px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 0xFF;
                 }
             File.WriteAllBytes(path, EncodePng(px, 24, 24));
-            return path;
+            return _placeholder = path;
         }
         catch
         {
             return path; // best effort: a blank row beats a crash
+        }
+    }
+
+    private static string? _placeholder;
+
+    // "\x89PNG"u8 would not do: \x89 is the character U+0089, two bytes in UTF-8.
+    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    private static bool IsPng(string path)
+    {
+        try
+        {
+            // The signature, then the first chunk's length and the IHDR type.
+            using var file = File.OpenRead(path);
+            Span<byte> head = stackalloc byte[16];
+            return file.ReadAtLeast(head, 16, throwOnEndOfStream: false) == 16
+                && head[..8].SequenceEqual(PngSignature) && head[12..].SequenceEqual("IHDR"u8);
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -122,7 +161,7 @@ public static class ItemArt
             Array.Copy(rgba, y * width * 4, raw, y * stride + 1, width * 4);
         }
         using var output = new MemoryStream();
-        output.Write("\x89PNG\r\n\x1a\n"u8);
+        output.Write(PngSignature);
         Span<byte> ihdr = stackalloc byte[13];
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(ihdr[..4], (uint)width);
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(ihdr.Slice(4, 4), (uint)height);
@@ -135,9 +174,9 @@ public static class ItemArt
 
     private static void WriteChunk(Stream to, ReadOnlySpan<byte> type, byte[] data)
     {
-        Span<byte> header = stackalloc byte[8];
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(header, (uint)data.Length);
-        to.Write(header);
+        Span<byte> length = stackalloc byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(length, (uint)data.Length);
+        to.Write(length);
         to.Write(type);
         to.Write(data);
         uint crc = 0xFFFFFFFF;
@@ -156,10 +195,11 @@ public static class ItemArt
         return crc;
     }
 
+    /// <summary>PNG image data is a zlib stream (header + Adler-32), not bare deflate.</summary>
     private static byte[] Deflate(byte[] raw)
     {
         using var zipped = new MemoryStream();
-        using (var deflate = new System.IO.Compression.DeflateStream(zipped, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+        using (var deflate = new System.IO.Compression.ZLibStream(zipped, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
             deflate.Write(raw);
         return zipped.ToArray();
     }

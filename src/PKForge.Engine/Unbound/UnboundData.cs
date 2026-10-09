@@ -126,7 +126,7 @@ internal static class UnboundData
     internal static string NormalizeName(string name)
     {
         var builder = new System.Text.StringBuilder(name.Length);
-        foreach (var ch in name.Normalize(System.Text.NormalizationForm.FormD))
+        foreach (var ch in PKForge.Domain.Diacritics.Decompose(name))
         {
             if (ch == '\u2640') builder.Append('f');
             else if (ch == '\u2642') builder.Append('m');

@@ -90,14 +90,14 @@ public static class BankEntryEditor
     }
 
     /// <summary>Held-item list with sprites for anything already cached (misses show name only).</summary>
-    private static List<PickItem> ItemIcons(IReadOnlyList<string> names)
+    private static List<PickItem> ItemIcons(IReadOnlyList<string> names, IReadOnlyList<string> art)
     {
         var directory = System.IO.Path.Combine(AppPaths.Data, "items");
         var items = new List<PickItem> { new(0, "(none)") };
         for (var id = 1; id < names.Count; id++)
         {
             if (names[id].Length == 0) continue;
-            var cached = System.IO.Path.Combine(directory, ItemArt.Slug(names[id]) + ".png");
+            var cached = System.IO.Path.Combine(directory, ItemArt.Slug(BoxBrowserPage.ArtName(art, names, id)) + ".png");
             items.Add(new PickItem(id, names[id], File.Exists(cached) ? cached : null));
         }
         return items;
@@ -438,7 +438,7 @@ public static class BankEntryEditor
             _rows["nature"].Value = _session.Generation <= 2 ? "none (Gen 1/2)"
                 : $"{NameOf(_data.NatureNames, d.Nature)}  {NatureFacts.EffectLabel(d.Nature)}";
             _rows["ability"].Value = NameOf(_data.AbilityNames, d.Ability);
-            _rows["item"].Value = d.HeldItem == 0 ? "none" : NameOf(_data.ItemNames, d.HeldItem);
+            _rows["item"].Value = d.HeldItem == 0 ? "none" : NameOf(ItemNames, d.HeldItem);
             _rows["ball"].Value = NameOf(_data.BallNames, d.Ball);
             _rows["gender"].Value = d.Gender switch { 0 => "♂ Male", 1 => "♀ Female", _ => "Genderless" };
             _rows["friendship"].Value = d.Friendship.ToString();
@@ -451,6 +451,30 @@ public static class BankEntryEditor
                 : $"Total {d.EVs.Sum()}/510";
             _header.InvalidateSurface();
             _statsTable.InvalidateSurface();
+        }
+
+        /// <summary>
+        /// Item names in the mon's own game, as the box editor uses: Gen 1-3 number their items
+        /// differently from the modern table (Gen 3's 209 is Mystic Water, the modern 209 is
+        /// Micle Berry), so the modern list showed, and let you pick, the wrong item.
+        /// </summary>
+        private IReadOnlyList<string> ItemNames => _itemNames ??= GameItemNames();
+        private IReadOnlyList<string>? _itemNames;
+
+        /// <summary>The same ids by their modern names, for sprites.</summary>
+        private IReadOnlyList<string> ItemArtNames => _itemArtNames ??= GameItemArtNames();
+        private IReadOnlyList<string>? _itemArtNames;
+
+        private IReadOnlyList<string> GameItemArtNames()
+        {
+            try { return _session.GetItemArtNames() is { Count: > 0 } names ? names : ItemNames; }
+            catch { return ItemNames; }
+        }
+
+        private IReadOnlyList<string> GameItemNames()
+        {
+            try { return _session.GetItemNames() is { Count: > 0 } names ? names : _data.ItemNames; }
+            catch { return _data.ItemNames; }
         }
 
         private string NameOf(IReadOnlyList<string> names, int id) =>
@@ -610,7 +634,7 @@ public static class BankEntryEditor
 
         private async Task EditItemAsync()
         {
-            var pick = await PickerMenu.ShowAsync(_host, "Held item", ItemIcons(_data.ItemNames), _detail.HeldItem);
+            var pick = await PickerMenu.ShowAsync(_host, "Held item", ItemIcons(ItemNames, ItemArtNames), _detail.HeldItem);
             if (pick is not null) { _session.ApplyEdit(0, 0, new EntityEdit(HeldItem: pick.Id)); _dirty = true; }
         }
 

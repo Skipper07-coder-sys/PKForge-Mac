@@ -25,6 +25,11 @@ public interface ISaveEngineSession : IDisposable
     /// lists misname Gen 1-4 ids (Rare Candy et al); this is per-context truth.</summary>
     IReadOnlyList<string> GetItemNames();
 
+    /// <summary>Each of the open game's item ids by its modern name, for finding the item's
+    /// sprite and description: Gen 2-3 spell some items differently ("Parlyz Heal" is the
+    /// modern "Paralyze Heal"). Labels and stored ids still come from <see cref="GetItemNames"/>.</summary>
+    IReadOnlyList<string> GetItemArtNames() => GetItemNames();
+
     /// <summary>Display names of every form this species has in the open save's game,
     /// indexed by form id. One entry (or an empty name at 0) means no form choice.</summary>
     IReadOnlyList<string> GetFormChoices(int species);

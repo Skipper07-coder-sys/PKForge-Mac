@@ -1712,6 +1712,30 @@ public sealed class SaveEngineSession : ISaveEngineSession
         return GameInfo.Strings.GetItemStrings(_save.Context, _save.Version);
     }
 
+    private string[]? _itemArtNames;
+
+    public IReadOnlyList<string> GetItemArtNames()
+    {
+        ThrowIfDisposed();
+        // Gen 1 bags number items their own way (PKHeX's converter reads Gen 1 ids as catch rates).
+        if (_save.Context is not (EntityContext.Gen2 or EntityContext.Gen3)) return GetItemNames();
+        if (_itemArtNames is { } known) return known;
+        var names = GetItemNames();
+        var modern = GameInfo.Strings.itemlist;
+        var art = new string[names.Count];
+        for (var id = 0; id < art.Length; id++)
+        {
+            // PKHeX's own sprite mapping; an id with no modern twin keeps the game's name.
+            var future = ItemConverter.GetItemDisplay(id, _save.Context);
+            art[id] = future is > 0 and not ItemNoModernTwin && future < modern.Length && modern[future].Length > 0
+                ? modern[future] : names[id];
+        }
+        return _itemArtNames = art;
+    }
+
+    /// <summary>What <see cref="ItemConverter"/> returns for an id with no Gen 4+ counterpart.</summary>
+    private const int ItemNoModernTwin = 128;
+
     public IReadOnlyList<int> GetPouchLegalItems(string pouchName)
     {
         ThrowIfDisposed();
