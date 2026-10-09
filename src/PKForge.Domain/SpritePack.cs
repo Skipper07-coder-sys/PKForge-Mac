@@ -10,8 +10,12 @@ public static class SpritePack
     /// <summary>PokeAPI/sprites root every remote file is fetched from.</summary>
     public const string RemoteRoot = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/";
 
-    /// <summary>Cache folders the pack writes into, relative to the app data directory.</summary>
-    public static IReadOnlyList<string> Folders { get; } = ["home", "showdown", "items", BdspIcons.Folder];
+    /// <summary>
+    /// Cache folders the pack writes into, relative to the app data directory. The published archive
+    /// also carries Showdown's animated GIFs (~300 MB unpacked); nothing has drawn them since upstream
+    /// 3.1.0's new look (the static Showdown art is bundled), so their folder is not unpacked.
+    /// </summary>
+    public static IReadOnlyList<string> Folders { get; } = ["home", "items", BdspIcons.Folder];
 
     /// <summary>One pack file: its cache path ("home/6-s.png") and the URL it comes from.</summary>
     public sealed record Entry(string CachePath, string Url);
@@ -29,8 +33,6 @@ public static class SpritePack
 
         foreach (var look in SpriteCatalog.AllRemoteLooks())
         {
-            if (SpriteCatalog.Showdown(look) is { } sd)
-                Add("showdown/" + sd.CacheName, RemoteRoot + "pokemon/other/showdown/" + sd.Path);
             if (SpriteCatalog.Home(look) is { } home)
                 Add("home/" + home.CacheName, RemoteRoot + "pokemon/other/home/" + home.Path);
         }
@@ -83,6 +85,6 @@ public static class SpritePack
         {
             if (!(char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_' or '.')) return false;
         }
-        return file.EndsWith(".png", StringComparison.Ordinal) || file.EndsWith(".gif", StringComparison.Ordinal);
+        return file.EndsWith(".png", StringComparison.Ordinal);
     }
 }

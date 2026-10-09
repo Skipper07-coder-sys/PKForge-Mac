@@ -6,9 +6,10 @@ using PKForge.Domain;
 namespace PKForge.App.Services;
 
 /// <summary>
-/// Downloads the complete offline sprite pack: animated Showdown sprites, HOME renders and
-/// item icons. The fast path is one archive (built by tools/SpritePack, published as a
-/// release asset): a single resumable download, checked against its SHA-256, then unpacked
+/// Downloads the complete offline sprite pack: HOME renders and item icons (the archive's
+/// Showdown GIFs are skipped: see <see cref="SpritePack.Folders"/>). The fast path is one
+/// archive (built by tools/SpritePack, published as a release asset): a single resumable
+/// download, checked against its SHA-256, then unpacked
 /// file by file into the same caches the app already reads. Whatever is still missing after
 /// that, or everything when the archive is unavailable, is fetched file by file. Purely
 /// additive and resumable: existing files are never touched.
@@ -29,7 +30,7 @@ public sealed class SpritePackDownloader(ISpriteService sprites, IGameDataServic
         public string DoneMarker(string root) => Path.Combine(root, "spritepack", Sha256[..16] + ".done");
     }
 
-    // The main pack: Showdown animations, HOME renders, item icons. Falls back to per-file downloads.
+    // The main pack: HOME renders, item icons (and unused Showdown GIFs, not unpacked). Falls back to per-file downloads.
     private static readonly Archive Main = new("Sprite pack",
         "https://github.com/sofianeelhor/PKForge/releases/download/sprites-1/pkforge-sprites.zip",
         625_017_170, "611f384b2475f24946ecd51ba8a726aafffc04736f0cedf47236a1ac00ff6cd7");

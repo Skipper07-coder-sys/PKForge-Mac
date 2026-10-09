@@ -45,18 +45,8 @@ public interface ISpriteService
     bool HomeUnavailable(SpriteLook look);
 
     /// <summary>
-    /// Animated Showdown sprite lookup with three-state semantics: returns false while the
-    /// answer is unknown (still loading - draw NOTHING, no fallback flash); true with a sprite
-    /// when available; true with null when this exact form has no animation (fall back now).
-    /// </summary>
-    bool TryGetShowdown(SpriteLook look, out AnimatedSprite? sprite);
-
-    /// <summary>Warms the animated-sprite cache and invokes <paramref name="onLoaded"/> when ready.</summary>
-    void WarmShowdown(SpriteLook look, Action onLoaded);
-
-    /// <summary>
-    /// BDSP-style box icon (the optional add-on) with three-state semantics, like
-    /// <see cref="TryGetShowdown"/>: false while it loads (draw nothing, no pixel flash);
+    /// BDSP-style box icon (the optional add-on) with three-state semantics:
+    /// false while it loads (draw nothing, no pixel flash);
     /// true with the icon; true with null when the add-on has none (draw the pixel sprite).
     /// </summary>
     bool TryGetBdspIcon(SpriteLook look, Action onLoaded, out SKBitmap? icon);
@@ -93,36 +83,15 @@ public interface ISpriteService
     Task<bool> DownloadPackFileAsync(SpritePack.Entry entry, CancellationToken cancellationToken);
 }
 
-/// <summary>Decoded animation: frames plus per-frame durations in milliseconds.</summary>
-public sealed record AnimatedSprite(IReadOnlyList<SKBitmap> Frames, IReadOnlyList<int> DurationsMs)
-{
-    public int TotalDurationMs { get; } = Math.Max(1, DurationsMs.Sum());
-
-    /// <summary>Frame for a given absolute time, looping.</summary>
-    public SKBitmap FrameAt(long elapsedMs)
-    {
-        var t = (int)(elapsedMs % TotalDurationMs);
-        for (var i = 0; i < Frames.Count; i++)
-        {
-            t -= DurationsMs[i];
-            if (t < 0) return Frames[i];
-        }
-        return Frames[^1];
-    }
-}
-
 public sealed class SpriteService : ISpriteService
 {
     private const int MaxCacheEntries = 1024;
-    // Animations keep every frame decoded, so far fewer of them fit in memory.
-    private const int MaxAnimatedEntries = 160;
     // A HOME render decodes to 512x512 (1 MiB), and the Bank shows one at a time: keeping a thousand of them
     // while someone browses a big bank would hold a gigabyte. Re-decoding one from its disk copy takes ~3 ms.
     private const int MaxHomeEntries = 48;
     private readonly Dictionary<string, SKBitmap?> _cache = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loading = new(StringComparer.Ordinal);
     private readonly Queue<string> _eviction = new();
-    private readonly Queue<string> _animatedEviction = new();
     private readonly Queue<string> _homeEviction = new();
     private readonly Lock _gate = new();
 
@@ -258,95 +227,6 @@ public sealed class SpriteService : ISpriteService
     }
 
     private const string RemoteBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/";
-
-    private readonly Dictionary<string, AnimatedSprite?> _animatedCache = new(StringComparer.Ordinal);
-
-    public bool TryGetShowdown(SpriteLook look, out AnimatedSprite? sprite)
-    {
-        if (SpriteCatalog.Showdown(look) is not { } remote)
-        {
-            sprite = null;
-            return true; // known: this exact form has no animation
-        }
-        lock (_gate)
-            return _animatedCache.TryGetValue("sd-" + remote.CacheName, out sprite);
-    }
-
-    public void WarmShowdown(SpriteLook look, Action onLoaded)
-    {
-        if (SpriteCatalog.Showdown(look) is not { } remote) return; // TryGetShowdown already says "none"
-        var key = "sd-" + remote.CacheName;
-        lock (_gate)
-        {
-            if (_animatedCache.ContainsKey(key)) { onLoaded(); return; }
-            if (!_loading.Add(key)) return;
-        }
-
-        Task.Run(async () =>
-        {
-            AnimatedSprite? sprite = null;
-            var diskPath = Path.Combine(AppPaths.Data, "showdown", remote.CacheName);
-            await NetworkGate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                await DownloadToDiskAsync(RemoteBase + "showdown/" + remote.Path, diskPath, CancellationToken.None).ConfigureAwait(false);
-                sprite = DecodeGif(diskPath);
-                lock (_gate)
-                {
-                    _loading.Remove(key);
-                    _animatedCache[key] = sprite;
-                    _animatedEviction.Enqueue(key);
-                    while (_animatedCache.Count > MaxAnimatedEntries && _animatedEviction.TryDequeue(out var oldest))
-                    {
-                        if (_animatedCache.Remove(oldest, out var evicted) && evicted is not null)
-                            foreach (var frame in evicted.Frames)
-                                DisposeAfterPaint(frame);
-                    }
-                }
-            }
-            catch
-            {
-                // Cache the miss so callers stop waiting and fall back immediately
-                // (a fresh app launch retries in case it was just a network blip).
-                lock (_gate)
-                {
-                    _loading.Remove(key);
-                    _animatedCache[key] = null;
-                }
-            }
-            finally { NetworkGate.Release(); }
-            onLoaded();
-        });
-    }
-
-    /// <summary>Decodes every GIF frame, compositing against the prior frame as GIF disposal expects.</summary>
-    private static AnimatedSprite? DecodeGif(string path)
-    {
-        using var codec = SKCodec.Create(path);
-        if (codec is null || codec.FrameCount <= 0) return null;
-
-        var info = new SKImageInfo(codec.Info.Width, codec.Info.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
-        var frameInfos = codec.FrameInfo;
-        var frames = new List<SKBitmap>(codec.FrameCount);
-        var durations = new List<int>(codec.FrameCount);
-
-        for (var i = 0; i < codec.FrameCount; i++)
-        {
-            var bitmap = new SKBitmap(info);
-            var options = new SKCodecOptions(i);
-            if (i > 0 && frameInfos[i].RequiredFrame >= 0)
-            {
-                // Start from the required prior frame's pixels, as the GIF spec composites.
-                var required = frames[frameInfos[i].RequiredFrame];
-                required.CopyTo(bitmap);
-                options = new SKCodecOptions(i) { PriorFrame = frameInfos[i].RequiredFrame };
-            }
-            codec.GetPixels(info, bitmap.GetPixels(), options);
-            frames.Add(bitmap);
-            durations.Add(Math.Max(20, frameInfos[i].Duration));
-        }
-        return frames.Count == 0 ? null : new AnimatedSprite(frames, durations);
-    }
 
     public void Warm(SpriteLook look, Action onLoaded)
     {

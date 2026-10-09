@@ -333,7 +333,7 @@ public sealed class HomePage : ContentPage, IPadHandler
                 var choice = await PadMenu.ShowAsync(_hostGrid, "Get started", null,
                     new PadOption("Link an emulator", IconPath: "link", Detail: "Pick the emulator folder where your games keep their saves."),
                     new PadOption("Open a single save file", IconPath: "file", Detail: "Pick one save file instead of a whole emulator folder."),
-                    new PadOption($"Download the sprite pack ({SpritePackDownloader.SizeHint})", IconPath: "download", Detail: "Animated sprites, HOME pictures and item icons, to use offline."),
+                    new PadOption($"Download the sprite pack ({SpritePackDownloader.SizeHint})", IconPath: "download", Detail: "HOME pictures, item icons and BDSP box icons, to use offline."),
                     new PadOption("Maybe later", IconPath: "close"));
                 switch (choice)
                 {
@@ -1009,7 +1009,7 @@ public sealed class HomePage : ContentPage, IPadHandler
                 ? "Generated Pokémon obey trainer: ON"
                 : "Generated Pokémon obey trainer: OFF", IconPath: "profile",
                 Detail: "ON makes Pokémon you create belong to the open save's trainer."),
-            new PadOption($"Download full sprite pack ({SpritePackDownloader.SizeHint})", IconPath: "download", Detail: "Animated sprites, HOME pictures and item icons, to use offline."),
+            new PadOption($"Download full sprite pack ({SpritePackDownloader.SizeHint})", IconPath: "download", Detail: "HOME pictures, item icons and BDSP box icons, to use offline."),
             new PadOption("Rescan games", IconPath: "refresh", Detail: "Look through your linked folders for saves again."),
             new PadOption("Scan report", IconPath: "report", Detail: "What the last scan found in each folder, to copy and send us."),
             new PadOption("Share logs", IconPath: "export", Detail: "Crash reports and recent activity, to send us when something goes wrong."),
@@ -1134,7 +1134,7 @@ public sealed class HomePage : ContentPage, IPadHandler
         if (choice == "Share report") await ShareLogsAsync();
     }
 
-    /// <summary>Downloads every species' animated + HOME sprites for full offline use.</summary>
+    /// <summary>Downloads every species' HOME render and every item icon for full offline use.</summary>
     private async Task DownloadSpritePackAsync()
     {
         var downloader = IPlatformApplication.Current?.Services.GetService<SpritePackDownloader>();
@@ -1145,7 +1145,7 @@ public sealed class HomePage : ContentPage, IPadHandler
             return;
         }
         var overlay = LoadingOverlay.Show(_hostGrid, "Catching all the sprites!",
-            "Downloading animated battle sprites and HOME renders for every Pokémon. You can cancel anytime; finished parts are kept and it resumes where it left off.");
+            "Downloading HOME pictures for every Pokémon and every item icon. You can cancel anytime; finished parts are kept and it resumes where it left off.");
         try
         {
             await downloader.RunAsync(overlay.Report, overlay.Cancellation.Token);

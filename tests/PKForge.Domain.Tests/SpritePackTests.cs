@@ -15,13 +15,13 @@ public sealed class SpritePackTests
         Assert.Contains(entries, e => e.CachePath == "items/master-ball.png");
         Assert.Contains(entries, e => e.CachePath == "items/poke-doll.png");
         Assert.Contains(entries, e => e.CachePath.StartsWith("home/", StringComparison.Ordinal));
-        Assert.Contains(entries, e => e.CachePath.StartsWith("showdown/", StringComparison.Ordinal));
+        Assert.DoesNotContain(entries, e => e.CachePath.StartsWith("showdown/", StringComparison.Ordinal)); // unused GIFs
         Assert.DoesNotContain(entries, e => e.CachePath == "items/.png");
     }
 
     [Theory]
     [InlineData("home/6-s.png", true)]
-    [InlineData("showdown/10035-f-s.gif", true)]
+    [InlineData("showdown/10035-f-s.gif", false)] // the archive's unused GIFs are skipped
     [InlineData("items/poke-ball.png", true)]
     [InlineData("../home/6.png", false)]
     [InlineData("home/../../x.png", false)]
