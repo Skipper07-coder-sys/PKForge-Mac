@@ -414,15 +414,8 @@ public sealed class MacEmulatorScanner(ISaveEngine engine) : IIncrementalEmulato
             {
                 Load();
                 _entries![documentId] = new CacheEntry(modifiedTicks, save);
-                if (_entries.Count > MaxEntries)
-                {
-                    // Drop entries from older builds first, then whatever is left over.
-                    var current = "#" + InstallEpoch;
-                    foreach (var stale in _entries.Keys.Where(k => !k.EndsWith(current, StringComparison.Ordinal)).ToList())
-                        _entries.Remove(stale);
-                    while (_entries.Count > MaxEntries)
-                        _entries.Remove(_entries.Keys.First());
-                }
+                while (_entries.Count > MaxEntries)
+                    _entries.Remove(_entries.Keys.First());
                 _dirty = true;
             }
         }
@@ -450,6 +443,14 @@ public sealed class MacEmulatorScanner(ISaveEngine engine) : IIncrementalEmulato
             catch
             {
                 _entries = [];
+            }
+            // Every key ends with the build that read it, so an older build's entry can never match
+            // again: drop them now rather than carry one dead copy per install up to the cap.
+            var current = "#" + InstallEpoch;
+            foreach (var stale in _entries.Keys.Where(k => !k.EndsWith(current, StringComparison.Ordinal)).ToList())
+            {
+                _entries.Remove(stale);
+                _dirty = true;
             }
         }
     }
