@@ -116,10 +116,14 @@ public sealed class SpriteService : ISpriteService
     private const int MaxCacheEntries = 1024;
     // Animations keep every frame decoded, so far fewer of them fit in memory.
     private const int MaxAnimatedEntries = 160;
+    // A HOME render decodes to 512x512 (1 MiB), and the Bank shows one at a time: keeping a thousand of them
+    // while someone browses a big bank would hold a gigabyte. Re-decoding one from its disk copy takes ~3 ms.
+    private const int MaxHomeEntries = 48;
     private readonly Dictionary<string, SKBitmap?> _cache = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loading = new(StringComparer.Ordinal);
     private readonly Queue<string> _eviction = new();
     private readonly Queue<string> _animatedEviction = new();
+    private readonly Queue<string> _homeEviction = new();
     private readonly Lock _gate = new();
 
     // Bounded concurrency: a burst of warm() calls (opening a full box, filling a
@@ -234,10 +238,23 @@ public sealed class SpriteService : ISpriteService
                 _loading.Remove(key);
                 _cache[key] = bitmap;
                 _eviction.Enqueue(key);
+                _homeEviction.Enqueue(key);
+                TrimHome();
                 TrimCache();
             }
             onLoaded();
         });
+    }
+
+    /// <summary>Drops the oldest HOME renders past <see cref="MaxHomeEntries"/>. Caller holds <see cref="_gate"/>.</summary>
+    private void TrimHome()
+    {
+        while (_homeEviction.Count > MaxHomeEntries && _homeEviction.TryDequeue(out var oldest))
+        {
+            // The key stays in _eviction; removing a key that is already gone is harmless there.
+            if (_cache.Remove(oldest, out var evicted) && evicted is not null)
+                DisposeAfterPaint(evicted);
+        }
     }
 
     private const string RemoteBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/";
