@@ -13,6 +13,50 @@
 	<string>public.app-category.utilities</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>PKForge by @22sh · macOS port (beta) by @macprotips · GPL-3.0-or-later</string>
+	<!-- Save files open from Finder (Open With, a drop on the Dock icon). "Alternate": PKForge is
+	     offered, never made the default app, so a double-click still goes wherever it went. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Game save file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.pkforge.save</string>
+			</array>
+		</dict>
+	</array>
+	<!-- The emulator's own file is edited where it is, never a copy. -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.pkforge.save</string>
+			<key>UTTypeDescription</key>
+			<string>Game save file</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<!-- Battery saves (.sav, RetroArch .srm, DeSmuME .dsv) and GameCube memory card files (.gci). -->
+				<key>public.filename-extension</key>
+				<array>
+					<string>sav</string>
+					<string>srm</string>
+					<string>dsv</string>
+					<string>gci</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

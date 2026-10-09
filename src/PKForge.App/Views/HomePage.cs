@@ -265,6 +265,8 @@ public sealed class HomePage : ContentPage, IPadHandler
             _ = OfferCrashReportAsync();
         }
         _ = IPlatformApplication.Current?.Services.GetService<SpritePackDownloader>()?.FetchAddOnsQuietlyAsync();
+        if (Interlocked.Exchange(ref _pendingOpen, null) is { } pending)
+            _ = OpenFileAsync(pending.Length == 0 ? null : pending);
         // The lower screen shows the shelf's highlighted game while Home is in front.
         _secondClaim ??= IPlatformApplication.Current?.Services.GetService<SecondScreenState>()?.Routes.CreateClaim(SecondScreenOwner.Home);
         _secondClaim?.Activate();
@@ -1165,13 +1167,43 @@ public sealed class HomePage : ContentPage, IPadHandler
         }
     }
 
-    private async Task LinkFileAsync()
+    private Task LinkFileAsync() => OpenFileAsync(null);
+
+    /// <summary>Opens one save file and shows its boxes: <paramref name="path"/>, or the one the player picks.</summary>
+    private async Task OpenFileAsync(string? path)
     {
-        await _viewModel.LinkFileCommand.ExecuteAsync(null);
+        await _viewModel.OpenFileAsync(path is null ? null : new PickedDocument(path, System.IO.Path.GetFileName(path)));
         if (_viewModel.OpenedSave)
             await PushAsync<BoxBrowserPage>();
         else if (_viewModel.Status.StartsWith("Could not", StringComparison.Ordinal))
+        {
+            if (path is not null) RecentSaves.Remove(path);
             await PadMenu.ShowAsync(_hostGrid, "Save could not open", _viewModel.Status, "OK");
+        }
+    }
+
+    // A file opened from outside Home (Finder, the Dock, File ▸ Open / Open Recent) before Home
+    // first appeared; "" = show the open panel.
+    private static string? _pendingOpen;
+
+    /// <summary>
+    /// Opens a save from anywhere in the app: back to Home first (whatever screen is in front),
+    /// then the file's boxes. A null <paramref name="path"/> shows the open panel.
+    /// </summary>
+    internal static void RequestOpen(string? path)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            if (Application.Current?.Windows.FirstOrDefault()?.Page is not NavigationPage { RootPage: HomePage home } navigation
+                || !home._isAppearing && navigation.Navigation.NavigationStack.Count == 1)
+            {
+                _pendingOpen = path ?? string.Empty;
+                return;
+            }
+            if (navigation.Navigation.NavigationStack.Count > 1)
+                await navigation.PopToRootAsync(false);
+            await home.OpenFileAsync(path);
+        });
     }
 
     /// <summary>

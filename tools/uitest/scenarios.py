@@ -2,7 +2,7 @@
 own preferences) and a Ctx: ctx.save(name) copies a fixture save into that HOME, ctx.metric()
 records a timing. Everything is read back as text: no screenshots.
 
-Fixture: the Emerald save from test-saves/originals (party Blaziken, Gardevoir, Marill, Nincada,
+Fixture: the Emerald save from test-fixtures/ (party Blaziken, Gardevoir, Marill, Nincada,
 Poochyena, Trapinch; Castform in box 1 holds Mystic Water = Gen 3 item 209).
 """
 from __future__ import annotations
@@ -13,6 +13,7 @@ import io
 import importlib.util
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -215,7 +216,7 @@ def test_held_item_write(app, ctx):
     ctx.metric("held-item picker: open", (time.monotonic() - started) * 1000)
     app.type("Leftovers", "Search")
     started = time.monotonic()
-    app.waitfor("text", "A picks: Leftovers", 5000)
+    app.waitfor("text", "Return picks: Leftovers", 5000)
     ctx.metric("held-item picker: filter", (time.monotonic() - started) * 1000)
     app.press("A")
     app.settle()
@@ -571,3 +572,120 @@ def test_covered_window_pauses_animation(app, ctx):
     app.cmd("window restore")
     app.cmd("sleep 800")
     assert park_paints(500) >= 10, "the park did not resume after restore"
+
+
+def test_undo_last_change(app, ctx):
+    """Edit ▸ Undo (⌘Z) puts the save back one change at a time, newest first, from each change's restore point;
+    with nothing left it is off; a change made outside PKForge since blocks it (the restore points keep everything)."""
+    save = open_save(app, ctx)
+    original = save.read_bytes()
+    assert app.cmd("menu-undo") == "disabled", "Undo offered before any change"
+
+    def rename_castform(name: str):
+        app.cmd("select 1 7")                        # Castform
+        app.settle()
+        app.type(name, "CASTFORM")
+        app.settle()
+        assert app.cmd("menu-save") == "saving"
+        wait_status(app, "Saved.")
+
+    rename_castform("MISTY")
+    assert app.cmd("menu-undo") == 'undoing "Edit CASTFORM"'   # named as it was before the edit
+    wait_status(app, "Undone: Edit CASTFORM")
+    assert save.read_bytes() == original, "undoing the rename did not restore the file"
+
+    rename_castform("MISTY")                         # again, then a move on top of it
+    renamed = save.read_bytes()
+    reply = app.cmd("drag 0 5")                      # Aron → empty slot 6
+    assert "carrying=False" in reply, reply
+    wait_status(app, "MOVED")
+    assert _decoded(save, 1).get(6) == 382
+
+    reply = app.cmd("menu-undo")
+    assert reply == 'undoing "Move ARON"', reply
+    wait_status(app, "Undone: Move ARON")
+    assert save.read_bytes() == renamed, "first undo did not put the move back"
+    assert species_at(app).get(0) == 304, app.slots()           # the grid shows Aron home again
+
+    reply = app.cmd("menu-undo")
+    assert reply == 'undoing "Edit CASTFORM"', reply
+    wait_status(app, "Undone: Edit CASTFORM")
+    assert save.read_bytes() == original, "second undo did not restore the original file"
+    assert app.cmd("menu-undo") == "disabled", "Undo still offered with nothing left"
+
+    # A change the undo list doesn't know (an emulator writing the file) blocks the next undo.
+    rename_castform("RAIN")
+    outside = bytearray(save.read_bytes())
+    outside[-1] ^= 0xFF                              # past the save data: still a valid file, but not the one we wrote
+    save.write_bytes(bytes(outside))
+    assert app.cmd("menu-undo").startswith("undoing")
+    wait_status(app, "can't be undone")
+    assert save.read_bytes() == bytes(outside), "undo overwrote a change made outside PKForge"
+    assert app.cmd("menu-undo") == "disabled"
+
+
+def test_open_recent_and_finder(app, ctx):
+    """File ▸ Open Recent and Finder's Open With: from any screen, back to Home and into that save's boxes;
+    the save opened lately leads the Open Recent list."""
+    first = open_save(app, ctx)
+
+    def recent() -> list[str]:                       # the app keeps /var/…, the harness /private/var/…
+        return [os.path.realpath(p) for p in app.cmd("recent").splitlines()]
+
+    assert recent()[0] == os.path.realpath(first), recent()
+
+    def wait_opened(path: Path, how: str):
+        # The box page may already be in front (another save's): wait for this file to lead the list.
+        deadline = time.monotonic() + 15
+        while recent()[0] != os.path.realpath(path):
+            assert time.monotonic() < deadline, f"{how} never opened {path.name}: {recent()}"
+            app.cmd("sleep 200")
+        app.waitfor("page", "BoxBrowserPage")
+        app.settle()
+    second = first.with_name("second.srm")
+    shutil.copyfile(first, second)
+    app.press("X")                                   # a menu in front: Open Recent still goes through
+    app.cmd("sleep 300")
+    app.cmd(f"open-path {second}")
+    wait_opened(second, "Open Recent")
+    state = app.state()
+    assert state["stack"].count("BoxBrowserPage") == 1, f"boxes stacked twice: {state['stack']}"
+    assert recent()[:2] == [os.path.realpath(second), os.path.realpath(first)], recent()
+    # Finder: LaunchServices hands the file to the running app (the scene's URL contexts).
+    third = first.with_name("third.srm")
+    shutil.copyfile(first, third)
+    subprocess.run(["open", "-g", "-a", str(ctx.inst.app), str(third)], check=True)
+    wait_opened(third, "Finder's open")
+    assert app.state()["stack"].count("BoxBrowserPage") == 1, app.state()["stack"]
+    gone = first.with_name("gone.srm")
+    app.cmd(f"open-path {gone}")                     # a recent file that was moved: a clear message, dropped from the list
+    app.cmd("sleep 800")
+    assert os.path.realpath(gone) not in recent()
+
+
+def test_keyboard_prose_names_the_keys(app, ctx):
+    """Sentences that name a button follow the hints: on a keyboard 'Return adds', not 'A adds';
+    the Bank footer says what A does on the slot under the cursor."""
+    app.cmd("glyphs keyboard")
+    finish_onboarding(app)
+    if pad(app) == "PadMenu":
+        app.press("B")
+    app.tap("Bank")
+    app.cmd("sleep 700")
+    status = app.state().get("box.status", "")
+    assert "Return adds" in status and "A adds" not in status, status
+    footer = {glyph: label for glyph, _, label, _ in _hints(app)}
+    assert footer.get("A") == "Add" and footer.get("B") == "Back", footer
+    app.cmd("glyphs pad")
+    app.press("Right")
+    app.press("Left")                                # the status is rebuilt on a cursor move
+    app.cmd("sleep 200")
+    assert "A adds" in app.state().get("box.status", ""), app.state().get("box.status")
+    app.press("B")
+    app.waitfor("page", "HomePage")
+    app.settle()
+    app.cmd("glyphs keyboard")
+    app.tap("Dex Autopilot")
+    app.cmd("sleep 700")
+    texts = app.texts()
+    assert "Press Return" in texts and "Press A" not in texts, texts

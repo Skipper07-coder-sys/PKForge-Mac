@@ -31,6 +31,10 @@ checks and one-tap legalize work offline.
 > - one window by default: the second screen is optional (**⌘2**, or Settings ▸ Misc ▸ Second screen)
 > - pickers (items, moves, species…) drop down under the field you click and filter as you type
 >   (↑ ↓ to move, Return to pick, Esc to close)
+> - Mac habits: keys match the hints (Return, Esc, X, Y, L, R, +, −), drag and drop between boxes,
+>   right-click for a Pokémon's menu, **⌘S** save, **⌘Z** undo the last change, **⌘O** open and
+>   **File ▸ Open Recent**, and **Open With ▸ PKForge** (or a drop on the Dock icon) for .sav/.srm/.dsv/.gci files
+> - item descriptions in each game's own words (Emerald's Safari Ball is for the SAFARI ZONE)
 > - an experimental single-screen iPhone/iPad build: `tools/build-ios.sh` (simulator or device)
 
 Not affiliated with Nintendo, Game Freak, or The Pokémon Company.
@@ -121,12 +125,16 @@ Mouse, keyboard or a controller (Xbox, PlayStation, Switch, MFi).
 | | Keyboard |
 | --- | --- |
 | D-pad | Arrow keys |
-| A / B | Return / Esc |
-| X / Y | S / A |
-| L / R | Q / W |
-| Start / Select | Tab / right Shift |
+| A / B | Return or Space / Esc or Delete |
+| X / Y | X / Y |
+| L / R | L / R, or Page Up / Page Down |
+| Start / Select | + or Tab / − |
 
-Right-click does what a long press does. PKForge starts in one window: pick a Pokémon, then
+Keys go by the character typed, so they match on any layout (QWERTZ's Y is Y). With no controller
+connected the hints name these keys; Help ▸ Keyboard & Controller lists them. Right-click does what a
+long press does. **⌘Z** (Edit ▸ Undo) takes back the save's last edit or move, one at a time, from its
+restore point; Bank deposits and transfers between games are not undone (that would duplicate the
+Pokémon) — Settings ▸ Restore points has every earlier state. PKForge starts in one window: pick a Pokémon, then
 Menu ▸ Summary for its details. **Window ▸ Second Screen** (⌘2) or Settings ▸ Misc ▸ Second screen
 opens the lower screen as its own window (the dual-screen handheld layout) and remembers the choice.
 

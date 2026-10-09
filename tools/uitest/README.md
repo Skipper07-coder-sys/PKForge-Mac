@@ -36,6 +36,9 @@ originals are never opened.
 | `drag <from> <to> [pages]` | press, move, rest on an edge until the boxes paged, let go (`to` -1 = off the grid) |
 | `rightclick <slot>` | a right-click on a storage slot |
 | `menu-save` | File ▸ Save Changes (⌘S): `saving` or `disabled` |
+| `menu-undo` | Edit ▸ Undo (⌘Z): `undoing "<what>"` or `disabled` |
+| `open-path <path>` | what Finder's Open With and File ▸ Open Recent do: back to Home, then that save |
+| `recent` | File ▸ Open Recent's list, newest first |
 | `pick <path>` | the next file pick answers with this path, no open panel |
 | `glyphs keyboard\|pad` | simulates the last controller leaving, or one connecting |
 | `waitfor page\|pad\|text\|notext\|idle <value> [ms]`, `settle` | waits without sleeps |
@@ -46,4 +49,4 @@ Failures print the screen as text (`state`, `texts`, the log tail). For pixel-le
 (a GPU view, clipping) screenshot just the instance's window with `screencapture -l <window id>`.
 
 Env: `PKF_WORK` (clones and homes, default `$TMPDIR/pkf-uitest`), `PKF_SAVES` (fixture saves,
-default `../test-saves/originals` beside the repo), `PKF_GEN3_TOOLS` (independent Gen 3 checker).
+default `../test-fixtures` beside the repo), `PKF_GEN3_TOOLS` (independent Gen 3 checker).

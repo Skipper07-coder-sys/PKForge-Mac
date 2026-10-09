@@ -49,10 +49,11 @@ public sealed class PKForgeApplication : UIApplication
         return true;
     }
 
-    private static bool TextInputFocused() => FocusedTextInput() is not null;
-
     /// <summary>True while a picker's search box has the cursor.</summary>
     public static bool PickerSearchFocused() => FocusedTextInput() is { } field && PadKeysWhileTyping.IsMarked(field);
+
+    /// <summary>True while a text field or view has the cursor (it answers ⌘Z itself).</summary>
+    public static bool TextInputFocused() => FocusedTextInput() is not null;
 
     private static UIView? FocusedTextInput()
     {

@@ -319,6 +319,21 @@ internal static class Automation
                 });
             case "menu-save":
                 return await OnMain(() => AppDelegate.SaveFromMenu() ? "saving" : "disabled");
+            case "menu-undo":
+                // Edit ▸ Undo (⌘Z): the title it would show, then the undo itself.
+                return await OnMain(() =>
+                {
+                    if (AppDelegate.UndoTarget() is not { } box) return "disabled";
+                    var title = box.UndoDescription;
+                    _ = box.UndoLastChangeAsync();
+                    return $"undoing \"{title}\"";
+                });
+            case "open-path":
+                // What Finder's Open With and File ▸ Open Recent do: back to Home, then the save.
+                Views.HomePage.RequestOpen(Arg(1));
+                return $"opening {Arg(1)}";
+            case "recent":
+                return string.Join('\n', PKForge.App.Services.RecentSaves.All);
             case "pick":
                 MacPickers.AutomationPick = Arg(1);
                 return $"next file pick → {Arg(1)}";

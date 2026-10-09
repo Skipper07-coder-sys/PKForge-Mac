@@ -23,6 +23,10 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
         Automation.StartIfRequested();
 #endif
         MacPadInput.StartControllers();
+#if MACCATALYST
+        // File ▸ Open Recent lists the saves opened lately; the menu bar is rebuilt when that changes.
+        PKForge.App.Services.RecentSaves.Changed += () => MainThread.BeginInvokeOnMainThread(UIMenuSystem.MainSystem.SetNeedsRebuild);
+#endif
         // A key or button held while the app loses focus never sends its release: let go of everything.
         NSNotificationCenter.DefaultCenter.AddObserver(UIApplication.WillResignActiveNotification, _ => { MacPadInput.ReleaseAll(); ForgetKeys(); });
         return launched;
@@ -39,12 +43,64 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
         // File ▸ Save Changes (⌘S): the editor's Save changes button, the Mac's usual save key.
         var save = UIKeyCommand.Create((NSString)"Save Changes", null, SaveChangesSelector, "s", UIKeyModifierFlags.Command, null);
         builder.InsertChildMenuAtStart(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [save]), UIMenuIdentifier.File.GetConstant()!);
+        // File ▸ Open… (⌘O) and Open Recent, above it: from any screen, back to Home and into the save.
+        var open = UIKeyCommand.Create((NSString)"Open…", null, OpenSelector, "o", UIKeyModifierFlags.Command, null);
+        builder.InsertChildMenuAtStart(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [open, RecentMenu()]), UIMenuIdentifier.File.GetConstant()!);
         var controls = UICommand.Create("Keyboard & Controller", null, new ObjCRuntime.Selector("pkfShowControls:"), null);
         builder.InsertChildMenuAtStart(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [controls]), UIMenuIdentifier.Help.GetConstant()!);
     }
 
     private static readonly ObjCRuntime.Selector ToggleSecondScreenSelector = new("pkfToggleSecondScreen:");
     private static readonly ObjCRuntime.Selector SaveChangesSelector = new("pkfSaveChanges:");
+    private static readonly ObjCRuntime.Selector OpenSelector = new("pkfOpen:");
+    private static readonly ObjCRuntime.Selector OpenRecentSelector = new("pkfOpenRecent:");
+    private static readonly ObjCRuntime.Selector ClearRecentSelector = new("pkfClearRecent:");
+    // The system's Edit ▸ Undo (⌘Z): a focused text field answers it first; otherwise it undoes the save's last change.
+    private static readonly ObjCRuntime.Selector UndoSelector = new("undo:");
+
+    /// <summary>File ▸ Open Recent: each save's file name (with its folder where two share a name), then Clear Menu.</summary>
+    private static UIMenu RecentMenu()
+    {
+        var paths = PKForge.App.Services.RecentSaves.All;
+        var names = paths.Select(Path.GetFileName).ToList();
+        var items = new List<UIMenuElement>();
+        for (var i = 0; i < paths.Count; i++)
+        {
+            var title = names.Count(n => n == names[i]) > 1
+                ? $"{names[i]} — {Path.GetFileName(Path.GetDirectoryName(paths[i]))}"
+                : names[i]!;
+            items.Add(UICommand.Create(title, null, OpenRecentSelector, (NSString)paths[i]));
+        }
+        var clear = UICommand.Create("Clear Menu", null, ClearRecentSelector, null);
+        items.Add(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [clear]));
+        return UIMenu.Create("Open Recent", null, UIMenuIdentifier.None, 0, [.. items]);
+    }
+
+    [Export("pkfOpen:")]
+    private void OpenSave(NSObject? sender) => Views.HomePage.RequestOpen(null);
+
+    [Export("pkfOpenRecent:")]
+    private void OpenRecent(NSObject? sender)
+    {
+        if (sender is not UICommand { PropertyList: NSString path }) return;
+        if (File.Exists(path)) Views.HomePage.RequestOpen(path);
+        else PKForge.App.Services.RecentSaves.Remove(path); // moved or deleted since: drop it from the menu
+    }
+
+    [Export("pkfClearRecent:")]
+    private void ClearRecent(NSObject? sender) => PKForge.App.Services.RecentSaves.Clear();
+
+    /// <summary>The storage screen's view model while it has the input, nothing is typed into, and it has a change to undo.</summary>
+    internal static ViewModels.BoxBrowserViewModel? UndoTarget()
+    {
+        if (PKForgeApplication.TextInputFocused()) return null;
+        var services = IPlatformApplication.Current?.Services;
+        if (services?.GetService<PKForge.App.Services.GamepadRouter>()?.TopName != nameof(Views.BoxBrowserPage)) return null;
+        return services.GetService<ViewModels.BoxBrowserViewModel>() is { IsBusy: false, UndoDescription: not null } box ? box : null;
+    }
+
+    [Export("undo:")]
+    private void Undo(NSObject? sender) => _ = UndoTarget()?.UndoLastChangeAsync();
 
     /// <summary>The storage screen's view model while that screen has the input (no menu over it) and a Pokémon is selected.</summary>
     internal static ViewModels.BoxBrowserViewModel? EditorInFront()
@@ -80,6 +136,10 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
             command.State = SecondScreen?.IsAvailable == true ? UIMenuElementState.On : UIMenuElementState.Off;
         if (command.Action == SaveChangesSelector)
             command.Attributes = EditorInFront() is null ? UIMenuElementAttributes.Disabled : 0;
+        if (command.Action == ClearRecentSelector)
+            command.Attributes = PKForge.App.Services.RecentSaves.All.Count == 0 ? UIMenuElementAttributes.Disabled : 0;
+        if (command.Action == UndoSelector && UndoTarget() is { UndoDescription: { } what })
+            command.Title = $"Undo {what}";
     }
 
     [Export("pkfShowControls:")]
@@ -120,8 +180,14 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
         }
     }
 
-    public override bool CanPerform(ObjCRuntime.Selector action, NSObject? withSender) =>
-        action == PickerEscapeSelector ? PKForgeApplication.PickerSearchFocused() : base.CanPerform(action, withSender);
+    public override bool CanPerform(ObjCRuntime.Selector action, NSObject? withSender)
+    {
+        if (action == PickerEscapeSelector) return PKForgeApplication.PickerSearchFocused();
+#if MACCATALYST
+        if (action == UndoSelector) return UndoTarget() is not null;
+#endif
+        return base.CanPerform(action, withSender);
+    }
 
     [Export("pkfPickerEscape:")]
     private void PickerEscape(NSObject? sender)

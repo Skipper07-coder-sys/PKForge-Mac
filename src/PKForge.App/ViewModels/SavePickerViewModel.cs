@@ -489,7 +489,10 @@ public partial class SavePickerViewModel : ObservableObject
 
     /// <summary>Direct link to a single save file (the escape hatch when detection can't find it).</summary>
     [RelayCommand]
-    private async Task LinkFileAsync()
+    private Task LinkFileAsync() => OpenFileAsync(null);
+
+    /// <summary>Opens one save file: <paramref name="known"/> (Finder, File ▸ Open Recent), or the one the player picks.</summary>
+    public async Task OpenFileAsync(PickedDocument? known)
     {
         if (IsBusy) return;
         OpenedSave = false;
@@ -498,7 +501,7 @@ public partial class SavePickerViewModel : ObservableObject
             _busyWith = "opening a save file";
             IsBusy = true;
             Status = "Select the save file to link…";
-            var document = await _filePicker.PickSaveAsync();
+            var document = known ?? await _filePicker.PickSaveAsync();
             if (document is null) { Status = "Link cancelled."; return; }
             Status = $"Linking {document.DisplayName}…";
             var opening = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -508,6 +511,7 @@ public partial class SavePickerViewModel : ObservableObject
             _boxBrowser.RefreshFromCurrentSession();
             Perf.Took("open: box refresh", refreshing);
             OpenedSave = true;
+            RecentSaves.Add(document.DocumentId);
             CompleteSetup();
             Status = "Storage linked.";
         }
@@ -584,6 +588,7 @@ public partial class SavePickerViewModel : ObservableObject
             await _sessions.OpenAsync(new PickedDocument(save.DocumentId, save.EngineHint));
             _boxBrowser.RefreshFromCurrentSession();
             OpenedSave = true;
+            RecentSaves.Add(save.DocumentId);
             AppLog.Info("open", $"Opened {save.GameLabel} ({save.Emulator}, gen {save.Generation})");
             Status = "Connected.";
         }

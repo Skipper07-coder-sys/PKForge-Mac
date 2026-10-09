@@ -13,6 +13,8 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
     private readonly ISafeSaveWriter _writer;
     private readonly Theme.ThemeService _theme;
     private readonly ILegalizerService? _legalizer;
+    private readonly IBackupService? _backups;
+    private readonly ISaveFileAccess? _files;
 
     private SlotSummary[] _slots = [];
     /// <summary>One legality sweep's verdicts; reused until the save is written again.</summary>
@@ -30,7 +32,8 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
         OnPropertyChanged(nameof(CurrentBoxLegality));
     }
 
-    public BoxBrowserViewModel(IDocumentPicker picker, ISaveSessionService sessions, ILegalityService legality, ISafeSaveWriter writer, Theme.ThemeService theme, ILegalizerService? legalizer = null)
+    public BoxBrowserViewModel(IDocumentPicker picker, ISaveSessionService sessions, ILegalityService legality, ISafeSaveWriter writer, Theme.ThemeService theme, ILegalizerService? legalizer = null,
+        IBackupService? backups = null, ISaveFileAccess? files = null)
     {
         _picker = picker;
         _sessions = sessions;
@@ -38,6 +41,8 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
         _writer = writer;
         _theme = theme;
         _legalizer = legalizer;
+        _backups = backups;
+        _files = files;
     }
 
     [ObservableProperty] private SaveSnapshot? _save;
@@ -269,6 +274,7 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
             {
                 _sessions.MarkWritten(session.Document.DocumentId, candidate);
                 BumpMutationGeneration();
+                RememberUndo(session.Document.DocumentId, receipt, $"Edit {EditorSubject(detail)}", SaveAction.EditMon);
             }
 
             var updated = engineSession.ReadEntity(detail.Box, detail.Slot);
@@ -501,6 +507,7 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
             {
                 _sessions.MarkWritten(session.Document.DocumentId, candidate);
                 BumpMutationGeneration();
+                RememberUndo(session.Document.DocumentId, receipt, changeDescription ?? outcome.Message, action);
             }
 
             if (refreshSlot)
@@ -911,6 +918,9 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
             }
             OnPropertyChanged(nameof(VisibleSlots));
             SelectSlot(target.Slot);
+            // Its shown name ("ARON" when it has no nickname), for Edit ▸ Undo.
+            var movedName = engineSession.ReadEntity(target.Box, target.Slot) is { IsEmpty: false } moved && moved.Nickname.Length > 0
+                ? moved.Nickname : "Pokémon";
             var serialize = Task.Run(engineSession.Serialize);
             _serializing = serialize.ContinueWith(static _ => { }, TaskScheduler.Default);
             await _moveWrites.WaitAsync();
@@ -924,7 +934,11 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
                 WriteScope.Only(new SlotRef(source.Box, source.Slot), new SlotRef(target.Box, target.Slot)),
                 $"Move {(carried is { } summary ? summary.Nickname ?? $"#{summary.Species}" : "Pokémon")}: {SlotLabel(source.Box, source.Slot)} -> {SlotLabel(target.Box, target.Slot)}").AsTask());
             if (receipt.Changed)
+            {
                 _sessions.MarkWritten(documentId, candidate);
+                // Within this save only (the Bank and other games go through other paths): undoable.
+                RememberUndo(documentId, receipt, $"Move {movedName}", SaveAction.EditMon);
+            }
             Status = receipt.Changed
                 ? $"MOVED · restore point {ShortBackupId(receipt)}"
                 : "Nothing changed - no write, no restore point.";
@@ -999,6 +1013,104 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
 
     private static string EditorSubject(Domain.EntityDetail detail) =>
         string.IsNullOrWhiteSpace(detail.Nickname) ? "Pokémon" : detail.Nickname;
+
+    // ── Undo (⌘Z on the Mac) ──────────────────────────────────────────────────
+    // Each undoable write keeps its receipt; undo writes that write's restore point back. Only
+    // changes that live entirely inside the save are kept: a deposit, withdrawal or transfer also
+    // changed the Bank or another game, and putting just the save back would duplicate the Pokémon.
+
+    private sealed record UndoStep(string DocumentId, SaveWriteReceipt Receipt, string Description);
+
+    private readonly List<UndoStep> _undo = [];
+    private const int MaxUndoSteps = 50;
+
+    /// <summary>Actions whose writes touch nothing but the save. Move and Release are left out: the
+    /// Bank and game transfers write through them.</summary>
+    private static bool IsUndoable(SaveAction action) => action is SaveAction.EditMon or SaveAction.CreateMon
+        or SaveAction.BatchEdit or SaveAction.Duplicate or SaveAction.InjectEvent or SaveAction.EditInventory
+        or SaveAction.EditTrainer or SaveAction.EditDex or SaveAction.EditWorld or SaveAction.RepairRtc;
+
+    private void RememberUndo(string documentId, SaveWriteReceipt receipt, string description, SaveAction action)
+    {
+        if (!receipt.Changed || receipt.BackupId.Length == 0 || !IsUndoable(action)) return;
+        _undo.Add(new UndoStep(documentId, receipt, description));
+        if (_undo.Count > MaxUndoSteps) _undo.RemoveAt(0);
+        OnPropertyChanged(nameof(UndoDescription));
+    }
+
+    /// <summary>
+    /// What ⌘Z would undo in the open save ("Edit Pikachu"), or null when nothing can be. Also null
+    /// while a write is queued or running (a move still writing): the menu then names exactly what
+    /// the undo will take back, never the change before it.
+    /// </summary>
+    public string? UndoDescription => _backups is not null && !IsBusy && _movesInFlight == 0 && _mutationGate.CurrentCount > 0
+        && _sessions.Current is { } session
+        && _undo.FindLast(u => u.DocumentId == session.Document.DocumentId) is { } step ? step.Description : null;
+
+    /// <summary>
+    /// Puts the open save back as it was before its last undoable change, from that change's
+    /// restore point. Refused when the file changed since (an emulator wrote it, a write outside
+    /// the undo list): the restore points list still has every state.
+    /// </summary>
+    public Task<bool> UndoLastChangeAsync() => ExclusiveAsync(UndoLastChangeCoreAsync);
+
+    private async Task<bool> UndoLastChangeCoreAsync()
+    {
+        if (IsBusy || _backups is null || _files is null) return false;
+        if (_sessions.Current is not { } session)
+        {
+            Status = "No save connected.";
+            return false;
+        }
+        var documentId = session.Document.DocumentId;
+        var index = _undo.FindLastIndex(u => u.DocumentId == documentId);
+        if (index < 0)
+        {
+            Status = "Nothing to undo in this save.";
+            return false;
+        }
+        var step = _undo[index];
+        await _moveWrites.WaitAsync();
+        try
+        {
+            IsBusy = true;
+            var onDisk = await _files.ReadAsync(documentId);
+            if (Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(onDisk.Span)) != step.Receipt.WrittenSha256)
+            {
+                // Something else wrote the file after that change: undoing would throw that away.
+                _undo.RemoveAll(u => u.DocumentId == documentId);
+                Status = "The save changed since that edit, so it can't be undone. Settings ▸ Restore points has every earlier state.";
+                return false;
+            }
+            var before = await _backups.ReadAsync(step.Receipt.BackupId);
+            if (Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(before.Span)) != step.Receipt.OriginalSha256)
+            {
+                _undo.RemoveAt(index);
+                Status = "That change's restore point doesn't match, so nothing was undone.";
+                return false;
+            }
+            var receipt = await _writer.WriteScopedAsync(documentId, session.Snapshot, before, WriteScope.Everything,
+                $"Safety copy: the state before undoing \"{step.Description}\"");
+            _undo.RemoveAt(index);
+            if (receipt.Changed) _sessions.MarkWritten(documentId, before);
+            await _sessions.OpenAsync(session.Document);
+            RefreshFromCurrentSession();
+            Status = $"Undone: {step.Description}. The undone state is kept as restore point {ShortBackupId(receipt)}.";
+            return true;
+        }
+        catch (Exception error)
+        {
+            AppLog.Error("edit", "Undo aborted", error);
+            Status = $"Undo aborted: {error.Message}";
+            return false;
+        }
+        finally
+        {
+            IsBusy = false;
+            _moveWrites.Release();
+            OnPropertyChanged(nameof(UndoDescription));
+        }
+    }
 
     private static string ShortBackupId(Domain.SaveWriteReceipt receipt) =>
         receipt.BackupId.Length == 0 ? "(none)" : $"{receipt.BackupId[..Math.Min(13, receipt.BackupId.Length)]}…";

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Maui.LifecycleEvents;
 using PKForge.App.Services;
 using PKForge.App.Theme;
 using PKForge.App.ViewModels;
@@ -34,6 +35,11 @@ public static class MauiProgram
                 // Best displayed at font-size 16 or multiples (it is a pixel font).
                 fonts.AddFont("NDS12.ttf", "PixelUI");
             });
+#if MACCATALYST
+        // A save opened from Finder while the app runs (Open With, a drop on the Dock icon).
+        builder.ConfigureLifecycleEvents(events =>
+            events.AddiOS(ios => ios.SceneOpenUrl((_, contexts) => SceneDelegate.OpenFiles(contexts))));
+#endif
         builder.Services.AddSingleton<ISaveEngine, SaveEngine>();
         builder.Services.AddSingleton<IGameDataService, GameDataService>();
         builder.Services.AddSingleton<TrainerProfileStore>();

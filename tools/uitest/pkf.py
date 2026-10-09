@@ -12,7 +12,7 @@ run side by side. The app answers in text: visible labels/buttons, view-model st
   pkf.py down N | pkf.py clean                                    stop one | stop all, drop clones + prefs
 
 Env: PKF_WORK  scratch folder for clones and homes (default $TMPDIR/pkf-uitest)
-     PKF_SAVES folder holding the fixture saves (default ../../../test-saves/originals)
+     PKF_SAVES folder holding the fixture saves (default ../../../test-fixtures)
 """
 from __future__ import annotations
 
@@ -37,7 +37,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 BUILD = REPO / "dist" / "test.noindex" / "PKForge.app"
 WORK = Path(os.environ.get("PKF_WORK") or Path(os.environ.get("TMPDIR", "/tmp")) / "pkf-uitest")
-SAVES = Path(os.environ.get("PKF_SAVES") or (REPO.parent / "test-saves" / "originals"))
+# Outside test-saves/ (the app's linked folder), so the fixtures never show on the real app's shelf.
+SAVES = Path(os.environ.get("PKF_SAVES") or (REPO.parent / "test-fixtures"))
 BASE_PORT = 47100
 BUNDLE = "org.pkforge.app.uitest"
 END = "<<END>>"
@@ -175,6 +176,9 @@ class Instance:
                 plist = plistlib.load(f)
             plist["CFBundleIdentifier"] = self.bundle
             plist["CFBundleName"] = f"PKForge T{self.n}"
+            # Clones must not join Finder's Open With menu for save files (open -a still hands them files).
+            plist.pop("CFBundleDocumentTypes", None)
+            plist.pop("UTImportedTypeDeclarations", None)
             with info.open("wb") as f:
                 plistlib.dump(plist, f)
             subprocess.run(["codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,flags", str(self.app)],
@@ -414,11 +418,16 @@ def cmd_down(args):
     Instance(args.n).stop()
 
 
+LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework"
+              "/Support/lsregister")
+
+
 def cmd_clean(_args):
     for d in sorted(WORK.glob("i*")):
         if d.is_dir() and d.name[1:].isdigit():
             inst = Instance(int(d.name[1:]))
             inst.stop()
+            subprocess.run([LSREGISTER, "-u", str(inst.app)], capture_output=True)
             subprocess.run(["defaults", "delete", inst.bundle], capture_output=True)
             # cfprefsd can leave the emptied file behind.
             (Path.home() / "Library" / "Preferences" / f"{inst.bundle}.plist").unlink(missing_ok=True)
