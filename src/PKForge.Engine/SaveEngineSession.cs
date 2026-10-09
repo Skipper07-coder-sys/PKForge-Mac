@@ -1717,20 +1717,36 @@ public sealed class SaveEngineSession : ISaveEngineSession
     public IReadOnlyList<string> GetItemArtNames()
     {
         ThrowIfDisposed();
-        // Gen 1 bags number items their own way (PKHeX's converter reads Gen 1 ids as catch rates).
-        if (_save.Context is not (EntityContext.Gen2 or EntityContext.Gen3)) return GetItemNames();
         if (_itemArtNames is { } known) return known;
         var names = GetItemNames();
         var modern = GameInfo.Strings.itemlist;
+        // Gen 1 bags number items their own way (PKHeX's converter reads Gen 1 ids as catch rates).
+        var renamed = _save.Context is EntityContext.Gen2 or EntityContext.Gen3;
         var art = new string[names.Count];
         for (var id = 0; id < art.Length; id++)
         {
+            if (MachineItems.ArtName(names[id], _save.Context, _save.Version) is { } disc)
+            {
+                art[id] = disc; // this game's move decides the colour
+                continue;
+            }
             // PKHeX's own sprite mapping; an id with no modern twin keeps the game's name.
-            var future = ItemConverter.GetItemDisplay(id, _save.Context);
+            var future = renamed ? ItemConverter.GetItemDisplay(id, _save.Context) : 0;
             art[id] = future is > 0 and not ItemNoModernTwin && future < modern.Length && modern[future].Length > 0
                 ? modern[future] : names[id];
         }
         return _itemArtNames = art;
+    }
+
+    public string? GetItemDescription(int itemId)
+    {
+        ThrowIfDisposed();
+        var names = GetItemNames();
+        if ((uint)itemId >= (uint)names.Count) return null;
+        // The shared text of "TM01" lists every generation's move; say the one this game teaches.
+        if (MachineItems.Move(names[itemId], _save.Context, _save.Version) is { } move && move < GameInfo.Strings.movelist.Length)
+            return $"Teaches {GameInfo.Strings.movelist[move]} to a compatible Pokémon.";
+        return DexFacts.Item(GetItemArtNames()[itemId]);
     }
 
     /// <summary>What <see cref="ItemConverter"/> returns for an id with no Gen 4+ counterpart.</summary>

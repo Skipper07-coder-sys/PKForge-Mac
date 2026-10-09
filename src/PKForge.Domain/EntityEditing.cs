@@ -27,8 +27,14 @@ public interface ISaveEngineSession : IDisposable
 
     /// <summary>Each of the open game's item ids by its modern name, for finding the item's
     /// sprite and description: Gen 2-3 spell some items differently ("Parlyz Heal" is the
-    /// modern "Paralyze Heal"). Labels and stored ids still come from <see cref="GetItemNames"/>.</summary>
+    /// modern "Paralyze Heal"), and a machine is named by its disc ("TM Fire"). Labels and
+    /// stored ids still come from <see cref="GetItemNames"/>.</summary>
     IReadOnlyList<string> GetItemArtNames() => GetItemNames();
+
+    /// <summary>The effect line of an item of <see cref="GetItemNames"/>, or null. A game that
+    /// numbers its machines its own way says which move its TM teaches.</summary>
+    string? GetItemDescription(int itemId) =>
+        GetItemArtNames() is var art && (uint)itemId < (uint)art.Count ? DexFacts.Item(art[itemId]) : null;
 
     /// <summary>Display names of every form this species has in the open save's game,
     /// indexed by form id. One entry (or an empty name at 0) means no form choice.</summary>

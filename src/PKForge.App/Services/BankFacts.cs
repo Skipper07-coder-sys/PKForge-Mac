@@ -31,8 +31,10 @@ public sealed class BankFacts(IBankService bank, IGameDataService data) : IBankF
     public int Ball(BankEntry entry) => Probe(entry).Ball;
 
     /// <summary>The index's held item when it has one; older entries read it from the bytes
-    /// once and queue it for <see cref="FlushHeldItemBackfill"/>.</summary>
-    public int HeldItem(BankEntry entry) => entry.Info.HeldItem ?? Probe(entry).HeldItem;
+    /// once and queue it for <see cref="FlushHeldItemBackfill"/>. The index keeps each game's own
+    /// id; this answers in national numbering, so a Gen 3 Mystic Water is not a Micle Berry.</summary>
+    public int HeldItem(BankEntry entry) =>
+        EntityBytes.NationalItem(entry.Info, entry.Info.HeldItem ?? Probe(entry).HeldItem);
 
     /// <summary>
     /// Lazy migration: writes every held item probed from the bytes of a pre-field entry back

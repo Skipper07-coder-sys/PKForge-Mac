@@ -69,6 +69,20 @@ public static partial class EntityBytes
     public static EntityContext ContextOf(string? format) =>
         Normalize(format) is { } name && Direct.TryGetValue(name, out var known) ? known.Context : EntityContext.None;
 
+    /// <summary>
+    /// A stored held item in PKHeX's national (Gen 4+) numbering. Gen 2-3 records keep their own
+    /// games' ids (Gen 3 #209 is Mystic Water, national #209 is Micle Berry), so the Bank, where
+    /// generations mix, counts and names them by this. ROM-hack records are national already.
+    /// </summary>
+    public static int NationalItem(BankEntryInfo info, int heldItem)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        var context = info.Format is null
+            ? info.Generation switch { 2 => EntityContext.Gen2, 3 => EntityContext.Gen3, _ => EntityContext.None }
+            : ContextOf(info.Format);
+        return ItemConverter.GetItemDisplay(heldItem, context);
+    }
+
     /// <summary>The ROM hack whose own record <paramref name="format"/> names ("Radical Red"),
     /// or null for a PKHeX format. Only that game can edit or take back such a record exactly.</summary>
     public static string? RomHackGame(string? format) =>

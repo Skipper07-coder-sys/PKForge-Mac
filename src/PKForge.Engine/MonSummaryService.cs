@@ -64,7 +64,7 @@ public sealed class MonSummaryService(IGameDataService data, IMonInfoService inf
             hasNature ? d.Nature : null, hasNature ? Name(data.NatureNames, d.Nature) : null,
             hasAbility ? d.Ability : null, hasAbility ? Name(data.AbilityNames, d.Ability) : null,
             hasAbility ? DexFacts.Ability(d.Ability) : null,
-            d.HeldItem, itemName, itemName is null ? null : DexFacts.Item(itemName),
+            d.HeldItem, itemName, itemName is null ? null : Try(() => session.GetItemDescription(d.HeldItem)) ?? DexFacts.Item(itemName),
             d.Ball, generation >= 3 || d.Ball > 0 ? Name(data.BallNames, d.Ball) : "Poké Ball",
             d.Friendship, pokerus is { Supported: true } ? pokerus : null,
             cosmetics?.Markings ?? [],
