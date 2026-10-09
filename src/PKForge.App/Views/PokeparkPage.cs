@@ -225,7 +225,7 @@ public sealed class PokeparkPage : ContentPage, IPadHandler
         SelectResident(Math.Min(_selected, _scene.Residents.Count - 1));
         _status.Text = _scene.Residents.Count == 0
             ? "Your meadow is waiting. Select a Pokémon in a box or Bank → Send to Poképark."
-            : $"{_scene.EnvironmentName}  ·  {_scene.Residents.Count}/12 residents  ·  Tap a Pokémon · A opens its card";
+            : $"{_scene.EnvironmentName}  ·  {_scene.Residents.Count}/12 residents  ·  {InputGlyphs.Tap(capital: true)} a Pokémon · {InputGlyphs.Confirm} opens its card";
         UpdateJournal();
         foreach (var mon in _scene.Residents)
         {

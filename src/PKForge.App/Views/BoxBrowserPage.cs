@@ -2766,7 +2766,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
 
             var hint = new Label
             {
-                Text = "Left / right adjust · L / R change pouch · A opens exact count",
+                Text = $"Left / right adjust · L / R change pouch · {InputGlyphs.Confirm} opens exact count",
                 FontFamily = DsChrome.PixelFont,
                 FontSize = UiTokens.TextSmall,
                 TextColor = UiTokens.InkSoft,
@@ -3036,7 +3036,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
                 .ToList();
             if (legalIds.Count == 0)
             {
-                Report($"No addable items in {pouchName} - tap the pouch name to switch");
+                Report($"No addable items in {pouchName} - {InputGlyphs.Tap()} the pouch name to switch");
                 return;
             }
 

@@ -38,6 +38,8 @@ public sealed class BankPage : ContentPage, IPadPagingHandler
     private readonly SKCanvasView _panel;
     private string _boxTitle = "";
     private Label _statusLine = null!;
+    private readonly ContentView _footerHost = new();
+    private (string A, string B)? _footerLabels;
 
     private int _boxIndex;
     private int _selectedSlot;
@@ -128,16 +130,7 @@ public sealed class BankPage : ContentPage, IPadPagingHandler
         var statusHost = Kit.LcdPanel(_statusLine, padding: 6);
         statusHost.Margin = new Thickness(12, 0, 12, 6);
 
-        var footer = DsChrome.Footer(
-            ("A", "Grab", () => OnPadButton(PadButton.A)),
-            ("Y", "Mark", ToggleCursorMark),
-            ("X", "Actions", () => _ = ShowBankActionsAsync()),
-            ("B", "Back", () => OnPadButton(PadButton.B)),
-            ("LR", "Box", () => OnPadButton(PadButton.R)),
-            // SELECT (-): a dual-screen device turns the inspector's page below; a single
-            // screen opens the full-screen summary instead.
-            ("-", HasSecondScreen ? "Page" : "Summary", () => OnPadButton(PadButton.Select)),
-            ("+", "Menu", () => _ = OpenCursorMenuAsync()));
+        RefreshFooter();
 
         var root = new Grid
         {
@@ -146,12 +139,12 @@ public sealed class BankPage : ContentPage, IPadPagingHandler
                 new(GridLength.Auto), new(GridLength.Auto),
                 new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto),
             ],
-            Children = { DsChrome.TitleBar(), DsChrome.StatusStrip("Bank", "Open"), bodyHost, statusHost, footer },
+            Children = { DsChrome.TitleBar(), DsChrome.StatusStrip("Bank", "Open"), bodyHost, statusHost, _footerHost },
         };
         Grid.SetRow((View)root.Children[1], 1);
         Grid.SetRow(bodyHost, 2);
         Grid.SetRow(statusHost, 3);
-        Grid.SetRow(footer, 4);
+        Grid.SetRow(_footerHost, 4);
 
         _hostGrid = new Grid { Children = { root } };
         Content = _hostGrid;
@@ -558,7 +551,7 @@ public sealed class BankPage : ContentPage, IPadPagingHandler
         }
         var entry = EntryAt(_selectedSlot);
         _boxViewModel.Status = entry is null
-            ? $"Box {_boxIndex + 1:00} slot {_selectedSlot + 1:00} empty" + (HardcoreMode.IsOn ? $" · {HardcoreMode.Marker}" : " · A adds")
+            ? $"Box {_boxIndex + 1:00} slot {_selectedSlot + 1:00} empty" + (HardcoreMode.IsOn ? $" · {HardcoreMode.Marker}" : $" · {InputGlyphs.Confirm} adds")
             : $"{Describe(entry)} · Y mark · X actions";
     }
 
@@ -1609,8 +1602,33 @@ public sealed class BankPage : ContentPage, IPadPagingHandler
     /// on their rows, the light-pool cursor, the Pokémon in hand; the box's own Bank wallpaper
     /// under a navy veil.
     /// </summary>
+    /// <summary>
+    /// The footer says what A and B do on this slot right now: Grab, Place or Add; Back, Cancel or
+    /// Clear. Rebuilt only when a label changes.
+    /// </summary>
+    private void RefreshFooter()
+    {
+        var a = _carryId is not null ? "Place" : EntryAt(_selectedSlot) is null && !HardcoreMode.IsOn ? "Add" : "Grab";
+        var b = _marked.Count > 0 ? "Clear" : _carryId is not null ? "Cancel" : "Back";
+        if (_footerLabels == (a, b)) return;
+        _footerLabels = (a, b);
+        _footerHost.Content = DsChrome.Footer(
+            ("A", a, () => OnPadButton(PadButton.A)),
+            ("Y", "Mark", ToggleCursorMark),
+            ("X", "Actions", () => _ = ShowBankActionsAsync()),
+            ("B", b, () => OnPadButton(PadButton.B)),
+            ("LR", "Box", () => OnPadButton(PadButton.R)),
+            // SELECT (-): a dual-screen device turns the inspector's page below; a single
+            // screen opens the full-screen summary instead.
+            ("-", HasSecondScreen ? "Page" : "Summary", () => OnPadButton(PadButton.Select)),
+            ("+", "Menu", () => _ = OpenCursorMenuAsync()));
+    }
+
     private void Paint(object? sender, SKPaintSurfaceEventArgs args)
     {
+        // Every change of cursor, carry or marks repaints the grid, so the footer follows from here
+        // (after the paint: swapping views mid-draw would re-enter layout).
+        Dispatcher.Dispatch(RefreshFooter);
         var slots = new SlotSummary[Columns * Rows];
         for (var index = 0; index < slots.Length; index++)
             slots[index] = _boxEntries.TryGetValue(index, out var entry) ? Slot(entry, index) : new SlotSummary(_boxIndex, index, null, null, false, true);

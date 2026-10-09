@@ -32,6 +32,22 @@ public static class InputGlyphs
     /// <summary>What a hint shows for this glyph right now.</summary>
     public static string Label(string glyph) => Keyboard ? KeyFor(glyph) : glyph;
 
+    // Sentences that name a button use these, so "Press A" reads "Press Return" when the hints say Return.
+
+    /// <summary>The confirm button as a sentence names it: "A", or "Return" on a keyboard.</summary>
+    public static string Confirm => Label("A");
+
+    /// <summary>The back button as a sentence names it: "B", or "Esc" on a keyboard.</summary>
+    public static string Back => Label("B");
+
+    /// <summary>"key" while hints name keyboard keys, else "button".</summary>
+    public static string ButtonWord => Keyboard ? "key" : "button";
+
+    /// <summary>"tap" on a touch screen, "click" on a Mac.</summary>
+    public static string Tap(bool capital = false) => OperatingSystem.IsMacCatalyst()
+        ? capital ? "Click" : "click"
+        : capital ? "Tap" : "tap";
+
     /// <summary>Re-renders <paramref name="owner"/> through <paramref name="refresh"/> on every switch, for as long as it lives.</summary>
     public static void Track(object owner, Action refresh) => Listeners.AddOrUpdate(owner, refresh);
 

@@ -32,7 +32,7 @@ public sealed class PokeparkSpeechBubble : IPadHandler
         var ink = Color.FromArgb("#355443");
         _line = new Label { TextColor = ink, FontFamily = "PixelUI", FontSize = 17,
             LineBreakMode = LineBreakMode.WordWrap, VerticalOptions = LayoutOptions.Center };
-        _hint = new Label { Text = "A / tap · reveal", TextColor = Color.FromArgb("#74846A"),
+        _hint = new Label { Text = $"{InputGlyphs.Confirm} / {InputGlyphs.Tap()} · reveal", TextColor = Color.FromArgb("#74846A"),
             FontFamily = "PixelUI", FontSize = UiTokens.TextSmall, HorizontalOptions = LayoutOptions.End };
         var name = new Label { Text = speaker, FontFamily = "PixelUI", FontSize = 17,
             TextColor = Color.FromArgb("#FFF7DA"), FontAttributes = FontAttributes.Bold };
@@ -91,7 +91,7 @@ public sealed class PokeparkSpeechBubble : IPadHandler
         _timer.Tick += (_, _) =>
         {
             if (_characters < _message.Length) _line.Text = _message[..++_characters];
-            else { _timer.Stop(); _hint.Text = "A / tap · continue"; }
+            else { _timer.Stop(); _hint.Text = $"{InputGlyphs.Confirm} / {InputGlyphs.Tap()} · continue"; }
         };
         App.Suspended += Close;
         _host.Unloaded += HostUnloaded;
@@ -101,7 +101,7 @@ public sealed class PokeparkSpeechBubble : IPadHandler
     private void Advance()
     {
         if (_characters < _message.Length)
-        { _characters = _message.Length; _line.Text = _message; _timer.Stop(); _hint.Text = "A / tap · continue"; }
+        { _characters = _message.Length; _line.Text = _message; _timer.Stop(); _hint.Text = $"{InputGlyphs.Confirm} / {InputGlyphs.Tap()} · continue"; }
         else Close();
     }
     public bool OnPadButton(PadButton button)

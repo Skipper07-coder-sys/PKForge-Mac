@@ -819,7 +819,7 @@ public partial class BoxBrowserViewModel : ObservableObject, IBoxPager
         if (SelectedSlot >= slots.Count || slots[SelectedSlot].Species is null) return false;
         CarriedSummary = slots[SelectedSlot];
         CarrySource = (BoxIndex, SelectedSlot);
-        Status = "CARRYING - place with A, cancel with B";
+        Status = $"CARRYING - place with {InputGlyphs.Confirm}, cancel with {InputGlyphs.Back}";
         return true;
     }
 

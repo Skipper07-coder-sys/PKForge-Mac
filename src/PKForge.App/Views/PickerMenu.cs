@@ -507,7 +507,7 @@ public sealed class PickerMenu : IPadHandler
     {
         var current = _index >= 0 && _index < _filtered.Count ? _filtered[_index] : null;
         if (current is not null)
-            _preview.Text = _livePreview is null ? $"A picks: {current.Name}" : $"A or tap again picks: {current.Name}";
+            _preview.Text = _livePreview is null ? $"{InputGlyphs.Confirm} picks: {current.Name}" : $"{InputGlyphs.Confirm} or {InputGlyphs.Tap()} again picks: {current.Name}";
         _livePreview?.OnHighlight(current);
     }
 
