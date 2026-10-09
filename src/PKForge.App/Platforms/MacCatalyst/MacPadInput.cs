@@ -8,8 +8,8 @@ namespace PKForge.App;
 /// <summary>
 /// Feeds the keyboard and game controllers into <see cref="GamepadRouter"/>, with the same
 /// hold-to-repeat cadence the Android build uses for d-pads and shoulders.
-/// Keys (DS-emulator style): arrows = d-pad, Return/Space/X = A, Esc/Delete/Z = B, S = X,
-/// A = Y, Q = L, W = R, Tab = Start, right Shift = Select.
+/// Keys: arrows = d-pad, Return/Space/A = A, Esc/Delete/B = B, X = X, Y = Y, L/PageUp = L,
+/// R/PageDown = R, Tab/+ = Start, − = Select (see <see cref="Resolve"/>).
 /// </summary>
 public static class MacPadInput
 {
@@ -24,24 +24,41 @@ public static class MacPadInput
 
     private static GamepadRouter? Router => IPlatformApplication.Current?.Services.GetService<GamepadRouter>();
 
-    public static PadButton? Resolve(UIKeyboardHidUsage key) => key switch
+    /// <summary>
+    /// The pad button a key presses. The rule is "press what the hint shows": hints name Return
+    /// for A, Esc for B, and the button's own letter or symbol for the rest (X, Y, L, R, +, −).
+    /// Letters and symbols go by the character the key types, never its position, so every
+    /// layout works (on QWERTZ the key printed Y is Y, not Z).
+    /// </summary>
+    public static PadButton? Resolve(UIKeyboardHidUsage usage, string? characters)
     {
-        UIKeyboardHidUsage.KeyboardUpArrow => PadButton.Up,
-        UIKeyboardHidUsage.KeyboardDownArrow => PadButton.Down,
-        UIKeyboardHidUsage.KeyboardLeftArrow => PadButton.Left,
-        UIKeyboardHidUsage.KeyboardRightArrow => PadButton.Right,
-        UIKeyboardHidUsage.KeyboardReturnOrEnter or UIKeyboardHidUsage.KeypadEnter
-            or UIKeyboardHidUsage.KeyboardSpacebar or UIKeyboardHidUsage.KeyboardX => PadButton.A,
-        UIKeyboardHidUsage.KeyboardEscape or UIKeyboardHidUsage.KeyboardDeleteOrBackspace
-            or UIKeyboardHidUsage.KeyboardZ => PadButton.B,
-        UIKeyboardHidUsage.KeyboardS => PadButton.X,
-        UIKeyboardHidUsage.KeyboardA => PadButton.Y,
-        UIKeyboardHidUsage.KeyboardQ => PadButton.L,
-        UIKeyboardHidUsage.KeyboardW => PadButton.R,
-        UIKeyboardHidUsage.KeyboardTab => PadButton.Start,
-        UIKeyboardHidUsage.KeyboardRightShift => PadButton.Select,
-        _ => null,
-    };
+        switch (usage)
+        {
+            case UIKeyboardHidUsage.KeyboardUpArrow: return PadButton.Up;
+            case UIKeyboardHidUsage.KeyboardDownArrow: return PadButton.Down;
+            case UIKeyboardHidUsage.KeyboardLeftArrow: return PadButton.Left;
+            case UIKeyboardHidUsage.KeyboardRightArrow: return PadButton.Right;
+            case UIKeyboardHidUsage.KeyboardReturnOrEnter or UIKeyboardHidUsage.KeypadEnter or UIKeyboardHidUsage.KeyboardSpacebar:
+                return PadButton.A;
+            case UIKeyboardHidUsage.KeyboardEscape or UIKeyboardHidUsage.KeyboardDeleteOrBackspace:
+                return PadButton.B;
+            case UIKeyboardHidUsage.KeyboardTab: return PadButton.Start;
+            case UIKeyboardHidUsage.KeyboardPageUp: return PadButton.L;
+            case UIKeyboardHidUsage.KeyboardPageDown: return PadButton.R;
+        }
+        return (characters ?? "").ToLowerInvariant() switch
+        {
+            "a" => PadButton.A,
+            "b" => PadButton.B,
+            "x" => PadButton.X,
+            "y" => PadButton.Y,
+            "l" or "[" => PadButton.L,
+            "r" or "]" => PadButton.R,
+            "+" or "=" => PadButton.Start,
+            "-" => PadButton.Select,
+            _ => null,
+        };
+    }
 
     /// <summary>A native sheet (alert, open panel) is up: it owns input, not the page beneath it.</summary>
     public static bool NativeSheetShowing()
@@ -123,12 +140,31 @@ public static class MacPadInput
     public static void StartControllers()
     {
         NSNotificationCenter.DefaultCenter.AddObserver(GCController.DidConnectNotification,
-            n => { if (n.Object is GCController c) Attach(c); });
+            n => { if (n.Object is GCController c) Attach(c); UpdateGlyphs(); });
         NSNotificationCenter.DefaultCenter.AddObserver(GCController.DidDisconnectNotification,
-            n => { if (n.Object is GCController c) { StickDirection.Remove(c); ReleaseAll(); } });
+            n => { if (n.Object is GCController c) { StickDirection.Remove(c); ReleaseAll(); } UpdateGlyphs(n.Object as GCController); });
+#if IOS
+        // An iPhone or iPad shows keyboard keys only while a hardware keyboard is attached.
+        NSNotificationCenter.DefaultCenter.AddObserver(GCKeyboard.DidConnectNotification, _ => UpdateGlyphs());
+        NSNotificationCenter.DefaultCenter.AddObserver(GCKeyboard.DidDisconnectNotification, _ => UpdateGlyphs());
+#endif
         foreach (var controller in GCController.Controllers)
             Attach(controller);
+        UpdateGlyphs();
         GCController.StartWirelessControllerDiscovery(() => { });
+    }
+
+    /// <summary>Hints name keyboard keys while no controller is connected (<see cref="InputGlyphs"/>).</summary>
+    private static void UpdateGlyphs(GCController? leaving = null)
+    {
+        // A disconnecting controller may still be listed while its notification runs.
+        var controllers = GCController.Controllers.Count(c => c != leaving && c.ExtendedGamepad is not null);
+#if IOS
+        var keyboard = GCKeyboard.CoalescedKeyboard is not null;
+#else
+        const bool keyboard = true;
+#endif
+        InputGlyphs.Update(keyboard && controllers == 0);
     }
 
     private static void Attach(GCController controller)

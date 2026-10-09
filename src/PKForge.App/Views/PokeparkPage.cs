@@ -5,6 +5,14 @@ using PKForge.Domain;
 using SkiaSharp;
 using SkiaSharp.Views.Maui.Controls;
 using SkiaSharp.Views.Maui;
+#if MACCATALYST || IOS
+// The park repaints at 30 fps. A raster SKCanvasView hands every frame to CoreGraphics as a
+// full-window bitmap (channel permute + resample, ~40% CPU on a Mac); the Metal-backed view
+// draws on the GPU. Android keeps the raster view.
+using ParkCanvas = SkiaSharp.Views.Maui.Controls.SKGLView;
+#else
+using ParkCanvas = SkiaSharp.Views.Maui.Controls.SKCanvasView;
+#endif
 
 namespace PKForge.App.Views;
 
@@ -17,7 +25,7 @@ public sealed class PokeparkPage : ContentPage, IPadHandler
     private readonly PokeparkSocialService _social;
     private readonly ParkOfflineJournalService _offlineJournal;
     private readonly PokeparkScene _scene;
-    private readonly SKCanvasView _canvas = new();
+    private readonly ParkCanvas _canvas = new();
     private readonly Grid _host;
     private readonly Label _status;
     private readonly IDispatcherTimer _timer;
@@ -62,8 +70,10 @@ public sealed class PokeparkPage : ContentPage, IPadHandler
         };
         _canvas.PaintSurface += (_, e) =>
         {
+            var painting = Stopwatch.GetTimestamp();
             lock (_renderGate)
                 _scene.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _clock.ElapsedMilliseconds);
+            Perf.Took("paint park", painting);
         };
         var panel = Kit.LcdPanel(_canvas, padding: 0);
         panel.Margin = new Thickness(12, 4, 12, 0);

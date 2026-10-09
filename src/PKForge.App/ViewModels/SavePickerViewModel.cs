@@ -501,8 +501,12 @@ public partial class SavePickerViewModel : ObservableObject
             var document = await _filePicker.PickSaveAsync();
             if (document is null) { Status = "Link cancelled."; return; }
             Status = $"Linking {document.DisplayName}…";
+            var opening = System.Diagnostics.Stopwatch.GetTimestamp();
             await _sessions.OpenAsync(document);
+            Perf.Took("open: session", opening);
+            var refreshing = System.Diagnostics.Stopwatch.GetTimestamp();
             _boxBrowser.RefreshFromCurrentSession();
+            Perf.Took("open: box refresh", refreshing);
             OpenedSave = true;
             CompleteSetup();
             Status = "Storage linked.";

@@ -1,3 +1,4 @@
+using PKForge.App.Services;
 using Microsoft.Maui.Controls.Shapes;
 using PKForge.App.Theme;
 using PKForge.Chrome;
@@ -488,43 +489,50 @@ public static class Kit
 
     /// <summary>
     /// A footer key: the designer's pixel button tinted cyan for the console's buttons, and a
-    /// round cyan disc with the glyph for the rest (TAP, ↑↓ ...).
+    /// round cyan disc with the glyph for the rest (TAP, ↑↓ ...). With no controller on a Mac it
+    /// names the keyboard key instead (<see cref="InputGlyphs"/>) and follows connects/disconnects.
     /// </summary>
     public static Border GlyphKey(string glyph, Action? onTap = null)
     {
-        View face;
-        if (KeyArt.TryGetValue(glyph, out var art) && KeyImage(art) is { } image)
-        {
-            var canvas = new SKCanvasView { InputTransparent = true };
-            canvas.PaintSurface += (_, args) =>
-            {
-                var c = args.Surface.Canvas;
-                c.Clear(SKColors.Transparent);
-                using var tint = new SKPaint { ColorFilter = SKColorFilter.CreateBlendMode(UiTokens.BagCyanEdge.ToSKColor(), SKBlendMode.SrcIn) };
-                var side = Math.Min(args.Info.Width, args.Info.Height);
-                var dest = SKRect.Create((args.Info.Width - side) / 2f, (args.Info.Height - side) / 2f, side, side);
-                c.DrawImage(image, dest, new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None), tint);
-            };
-            face = canvas;
-        }
-        else face = new Label
-        {
-            Text = glyph, FontFamily = DsChrome.PixelFont, TextColor = UiTokens.OnAccent, FontSize = UiTokens.TextLabel,
-            VerticalTextAlignment = TextAlignment.Center, HorizontalTextAlignment = TextAlignment.Center,
-        };
-        var drawn = face is SKCanvasView;
         var key = new Border
         {
             StrokeThickness = 0,
             StrokeShape = new RoundRectangle { CornerRadius = 11 },
-            BackgroundColor = drawn ? Colors.Transparent : UiTokens.BagCyanEdge,
-            Padding = new Thickness(!drawn && glyph.Length > 1 ? 7 : 0, 0),
             MinimumWidthRequest = 22,
-            WidthRequest = drawn ? 22 : -1,
             HeightRequest = 22,
             VerticalOptions = LayoutOptions.Center,
-            Content = face,
         };
+        void Render()
+        {
+            var shown = InputGlyphs.Label(glyph);
+            View face;
+            if (!InputGlyphs.Keyboard && KeyArt.TryGetValue(glyph, out var art) && KeyImage(art) is { } image)
+            {
+                var canvas = new SKCanvasView { InputTransparent = true };
+                canvas.PaintSurface += (_, args) =>
+                {
+                    var c = args.Surface.Canvas;
+                    c.Clear(SKColors.Transparent);
+                    using var tint = new SKPaint { ColorFilter = SKColorFilter.CreateBlendMode(UiTokens.BagCyanEdge.ToSKColor(), SKBlendMode.SrcIn) };
+                    var side = Math.Min(args.Info.Width, args.Info.Height);
+                    var dest = SKRect.Create((args.Info.Width - side) / 2f, (args.Info.Height - side) / 2f, side, side);
+                    c.DrawImage(image, dest, new SKSamplingOptions(SKFilterMode.Nearest, SKMipmapMode.None), tint);
+                };
+                face = canvas;
+            }
+            else face = new Label
+            {
+                Text = shown, FontFamily = DsChrome.PixelFont, TextColor = UiTokens.OnAccent, FontSize = UiTokens.TextLabel,
+                VerticalTextAlignment = TextAlignment.Center, HorizontalTextAlignment = TextAlignment.Center,
+            };
+            var drawn = face is SKCanvasView;
+            key.BackgroundColor = drawn ? Colors.Transparent : UiTokens.BagCyanEdge;
+            key.Padding = new Thickness(!drawn && shown.Length > 1 ? 7 : 0, 0);
+            key.WidthRequest = drawn ? 22 : -1;
+            key.Content = face;
+        }
+        Render();
+        InputGlyphs.Track(key, Render);
         if (onTap is not null)
         {
             var tap = new TapGestureRecognizer();
@@ -651,6 +659,7 @@ public static class Kit
         {
             var item = new HorizontalStackLayout
             {
+                AutomationId = $"hint:{glyph}",
                 Spacing = 7,
                 Children =
                 {

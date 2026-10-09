@@ -49,10 +49,18 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     private readonly HashSet<int> _lockedSlots = [];
     private readonly HashSet<int> _markedBoxes = [];
 
-    /// <summary>The party cursor breathes: a light repaint loop that only runs on the party view.</summary>
+    /// <summary>
+    /// A carried party card breathes and swapped cards glide: a repaint loop that runs only while one
+    /// of them moves. A still party is never repainted (a selection alone kept it at ~22 fps, ~30% CPU).
+    /// </summary>
     private void EnsurePartyPulse()
     {
-        if (_partyPulseTimer is not null || _viewModel.SelectedSlot < 0) return;
+        if (_viewModel.CarrySource is not { Box: -1 } && !PartyView.Swapping)
+        {
+            StopPartyPulse();
+            return;
+        }
+        if (_partyPulseTimer is not null) return;
         _partyPulseStart = Environment.TickCount64;
         _partyPulseTimer = Dispatcher.CreateTimer();
         _partyPulseTimer.Interval = TimeSpan.FromMilliseconds(45);
@@ -68,6 +76,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
 
     public BoxBrowserPage(BoxBrowserViewModel viewModel, ISpriteService sprites, ThemeService theme)
     {
+        var built = System.Diagnostics.Stopwatch.GetTimestamp();
         _viewModel = viewModel;
         _viewModel.ConfirmHackRisk = async _ =>
         {
@@ -87,6 +96,9 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         _frame = new FrameInvalidator(_canvas);
         _canvas.PaintSurface += Paint;
         _canvas.Touch += Touch;
+        // Mouse habits: right-click a Pokémon for its menu; scroll or swipe sideways to change boxes.
+        PointerGestures.OnSecondaryClick(_canvas, OpenMenuAt);
+        PointerGestures.OnScrollSteps(_canvas, step => OnPadButton(step > 0 ? PadButton.R : PadButton.L));
 
         // The box header rides above the well: the slanted name banner between two chevrons.
         // Touch mirrors the games: the chevrons page the boxes, the name opens the box manager.
@@ -169,6 +181,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             if (args.PropertyName is nameof(ThemeService.SkAccent))
                 _canvas.InvalidateSurface();
         });
+        Perf.Took("BoxBrowserPage ctor", built);
     }
 
     /// <summary>Draws the box header: the name banner, and a chevron each way when a box is there.</summary>
@@ -267,7 +280,8 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     // box bar's mark counter and this footer always say which hand is active.
 
     private void SetStorageFooter() => _footerHost.Content = DsChrome.Footer(
-        ("A", _viewModel.CarrySource is null ? "Grab" : "Place", null),
+        // Clickable like every other hint: a mouse without a controller grabs and places with it too.
+        ("A", _viewModel.CarrySource is null ? "Grab" : "Place", () => ConfirmCursor()),
         ("-", "Multi-select", EnterSelectMode),
         ("LR", "Box", () => OnPadButton(PadButton.R)),
         ("X", "Tools", () => _ = ShowToolsAsync()), ("Y", "Save data", () => _ = ShowSaveDataAsync()),
@@ -344,7 +358,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     private void SetBoxManageFooter() => _footerHost.Content = DsChrome.Footer(
         ("A", _boxHeld ? "Drop box" : "Hold box", () => OnPadButton(PadButton.A)),
         ("B", "Done", ExitBoxManageMode),
-        ("LR", _boxHeld ? "Swap" : "Browse", null),
+        ("LR", _boxHeld ? "Swap" : "Browse", () => OnPadButton(PadButton.R)),
         ("Y", _markedBoxes.Contains(_viewModel.BoxIndex) ? "Deselect" : "Select", ToggleMarkedBox),
         ("X", "Box actions", () => _ = ShowBoxBulkActionsAsync()));
 
@@ -4321,6 +4335,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
     /// <summary>The Thor's second screen mirrors the box automatically while this page is open.</summary>
     protected override void OnAppearing()
     {
+        Perf.Mark("BoxBrowserPage appearing");
         base.OnAppearing();
         IPlatformApplication.Current?.Services.GetService<GamepadRouter>()?.Push(this);
         // The mode gates this whole screen, so the strip says so the moment it opens.
@@ -5309,6 +5324,13 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
 
     private void Paint(object? sender, SKPaintSurfaceEventArgs args)
     {
+        var painting = System.Diagnostics.Stopwatch.GetTimestamp();
+        try { PaintStorage(args); }
+        finally { Perf.Took(_viewModel.BoxIndex == -1 ? "paint party" : "paint box", painting); }
+    }
+
+    private void PaintStorage(SKPaintSurfaceEventArgs args)
+    {
         if (_viewModel.BoxIndex == -1)
         {
             // The party pseudo-box renders as the navy deck, not the grid. The selected
@@ -5341,6 +5363,100 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         }
     }
 
+    // ── Drag and drop ────────────────────────────────────────────────────────
+    // Press on a Pokémon and move: it lifts into the hand (the same carry as A) and glides from
+    // slot to slot under the pointer; let go on a slot to move or swap it there (the same safe
+    // write as A), anywhere else to put it back. Held at the grid's left or right edge, the boxes
+    // page (the party sits between the last box and box 1), so one drag reaches any box.
+
+    private const float DragStartPoints = 6f;
+    private const float DragEdge = 0.06f;
+    private int _pressSlot = -1;
+    private SKPoint _pressPoint;
+    private bool _dragging;
+    private int _edgeDirection;
+    private IDispatcherTimer? _edgeTimer;
+
+    private float CanvasScale => _canvas.Width > 0 ? (float)(_canvas.CanvasSize.Width / _canvas.Width) : 1f;
+
+    /// <summary>True when the event was part of a drag (and so is not a tap).</summary>
+    private bool DragTouch(SKTouchEventArgs args)
+    {
+        switch (args.ActionType)
+        {
+            case SKTouchAction.Pressed:
+                _pressSlot = TouchSlot(args.Location);
+                _pressPoint = args.Location;
+                _dragging = false;
+                return false;
+            case SKTouchAction.Moved when !_dragging:
+            {
+                var moved = SKPoint.Distance(args.Location, _pressPoint) / CanvasScale;
+                var slots = _viewModel.VisibleSlots;
+                if (moved < DragStartPoints || _pressSlot < 0 || _pressSlot >= slots.Count || slots[_pressSlot].Species is null
+                    || _viewModel.CarrySource is not null)
+                    return false;
+                _viewModel.SelectSlot(_pressSlot);
+                if (!_viewModel.BeginCarry()) return false;
+                _dragging = true;
+                _canvas.InvalidateSurface();
+                return true;
+            }
+            case SKTouchAction.Moved:
+            {
+                args.Handled = true;
+                var width = _canvas.CanvasSize.Width;
+                SetDragEdge(args.Location.X < width * DragEdge ? -1 : args.Location.X > width * (1 - DragEdge) ? 1 : 0);
+                var slot = TouchSlot(args.Location);
+                if (slot >= 0 && slot != _viewModel.SelectedSlot)
+                {
+                    _viewModel.SelectSlot(slot);
+                    _canvas.InvalidateSurface();
+                }
+                return true;
+            }
+            case SKTouchAction.Released or SKTouchAction.Cancelled when _dragging:
+            {
+                _dragging = false;
+                SetDragEdge(0);
+                var slot = args.ActionType == SKTouchAction.Released ? TouchSlot(args.Location) : -1;
+                if (slot < 0)
+                {
+                    _viewModel.CancelCarry();   // let go off the grid: back where it was, nothing written
+                    _canvas.InvalidateSurface();
+                    return true;
+                }
+                _viewModel.SelectSlot(slot);
+                var source = _viewModel.CarrySource;
+                var partySwap = source is { Box: -1 } && _viewModel.BoxIndex == -1 && slot != source.Value.Slot
+                    && PartyHasMon(source.Value.Slot) && PartyHasMon(slot);
+                _ = DropAndRepaintAsync(partySwap ? (source!.Value.Slot, slot) : null);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Pages the boxes while a drag rests on an edge: once after a short hold, then steadily.</summary>
+    private void SetDragEdge(int direction)
+    {
+        if (direction == _edgeDirection) return;
+        _edgeDirection = direction;
+        _edgeTimer?.Stop();
+        _edgeTimer = null;
+        if (direction == 0) return;
+        _edgeTimer = Dispatcher.CreateTimer();
+        _edgeTimer.Interval = TimeSpan.FromMilliseconds(600);
+        _edgeTimer.Tick += (_, _) =>
+        {
+            if (!_dragging || _viewModel.CarrySource is null) { SetDragEdge(0); return; }
+            _viewModel.ChangeBox(_edgeDirection);
+            _canvas.InvalidateSurface();
+        };
+        _edgeTimer.Start();
+    }
+
     private void Touch(object? sender, SKTouchEventArgs args)
     {
         if (_viewModel.SelectMode)
@@ -5348,6 +5464,7 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
             TouchSelect(args);
             return;
         }
+        if (DragTouch(args)) { args.Handled = true; return; }
         // Skia only delivers Released if Pressed was marked handled.
         if (args.ActionType == SKTouchAction.Pressed) { args.Handled = true; return; }
         if (args.ActionType != SKTouchAction.Released) return;
@@ -5380,6 +5497,18 @@ public sealed partial class BoxBrowserPage : ContentPage, IPadPagingHandler, IPa
         }
         if (wasSelected && _viewModel.BeginCarry())
             _canvas.InvalidateSurface();
+    }
+
+    /// <summary>Right-click: selects the Pokémon under the pointer and opens its menu (what Start does).</summary>
+    private void OpenMenuAt(Point at)
+    {
+        if (_viewModel.SelectMode || _boxManageMode || _editorFocusMode || _viewModel.CarrySource is not null || _canvas.Width <= 0) return;
+        var scale = (float)(_canvas.CanvasSize.Width / _canvas.Width);
+        var slot = TouchSlot(new SKPoint((float)at.X * scale, (float)at.Y * scale));
+        if (slot < 0 || slot >= _viewModel.VisibleSlots.Count || _viewModel.VisibleSlots[slot].Species is null) return;
+        _viewModel.SelectSlot(slot);
+        _canvas.InvalidateSurface();
+        OpenCursorMenu();
     }
 
     private int TouchSlot(SKPoint location) => _viewModel.BoxIndex == -1

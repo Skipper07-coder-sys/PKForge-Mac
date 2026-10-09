@@ -44,6 +44,10 @@
     <!-- Same reason as the Mac: PKHeX's IgnoreSymbols name matching throws without full ICU. -->
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(PKForgeAutomation)' == 'true'">
+    <!-- Test builds (tools/build-mac-test.sh): the loopback remote control in Platforms/MacCatalyst/Automation.cs and Perf marks. -->
+    <DefineConstants>$(DefineConstants);PKF_AUTOMATION</DefineConstants>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(DiagnosticBuild)' == 'true'">
     <!-- Diagnostic builds install beside production and cannot overwrite its app-private data. -->
     <ApplicationId>org.pkforge.app.debug</ApplicationId>

@@ -101,6 +101,9 @@ public static class PartyView
     /// <summary>Starts the card swap animation after two party slots traded Pokémon.</summary>
     public static void BeginSwap(int a, int b) => _swap = (a, b, Environment.TickCount64);
 
+    /// <summary>True while two cards are still gliding past each other.</summary>
+    public static bool Swapping => _swap is not null;
+
     private static (int A, int B, float T)? SwapProgress()
     {
         if (_swap is not { } swap) return null;

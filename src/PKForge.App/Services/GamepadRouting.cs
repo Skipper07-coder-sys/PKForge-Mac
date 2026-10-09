@@ -41,6 +41,9 @@ public sealed class GamepadRouter
 
     public void Remove(IPadHandler handler) => _stack.Remove(handler);
 
+    /// <summary>The screen that gets the next press (for diagnostics and the test harness).</summary>
+    public string? TopName => _stack.Count > 0 ? _stack[^1].GetType().Name : null;
+
     public bool Dispatch(PadButton button) => _stack.Count > 0 && _stack[^1].OnPadButton(button);
 
     /// <summary>True when the top-most screen pages with L/R (see <see cref="IPadPagingHandler"/>).</summary>

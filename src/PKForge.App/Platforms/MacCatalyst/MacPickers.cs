@@ -11,8 +11,17 @@ namespace PKForge.App;
 /// </summary>
 public sealed class MacPickers : IDocumentPicker, IFolderPicker
 {
+#if PKF_AUTOMATION
+    /// <summary>Test builds: the next file pick answers with this path instead of an open panel.</summary>
+    internal static string? AutomationPick;
+#endif
+
     public async ValueTask<PickedDocument?> PickSaveAsync(CancellationToken cancellationToken = default)
     {
+#if PKF_AUTOMATION
+        if (Interlocked.Exchange(ref AutomationPick, null) is { } scripted)
+            return new PickedDocument(scripted, Path.GetFileName(scripted));
+#endif
         var urls = await PickAsync([UTTypes.Item], allowMultiple: false, cancellationToken);
         return urls.Count == 0 ? null : ToDocument(urls[0]);
     }

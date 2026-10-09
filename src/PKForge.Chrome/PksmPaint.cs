@@ -365,6 +365,7 @@ public static class PksmPaint
     /// </summary>
     public static IReadOnlyList<SKRect> HintBarHitRects(SKRect bar, IReadOnlyList<(string Key, string Label)> prompts, SKFont font)
     {
+        prompts = [.. prompts.Select(p => (KeyLabel(p.Key), p.Label))];
         var total = 0f;
         foreach (var (key, label) in prompts)
             total += Math.Max(font.Size * 1.3f, font.MeasureText(key) + font.Size * 0.9f) + 8 + font.MeasureText(label) + font.Size * 1.4f;
@@ -381,8 +382,12 @@ public static class PksmPaint
         return rects;
     }
 
+    /// <summary>What a prompt's key disc says: the button glyph, or the keyboard key when the app sets it so.</summary>
+    public static Func<string, string> KeyLabel { get; set; } = static key => key;
+
     public static void HintBar(SKCanvas c, SKRect bar, IReadOnlyList<(string Key, string Label)> prompts, SKFont font)
     {
+        prompts = [.. prompts.Select(p => (KeyLabel(p.Key), p.Label))];
         Panel(c, SKRect.Inflate(bar, -3, -3));
         var total = 0f;
         foreach (var (key, label) in prompts)

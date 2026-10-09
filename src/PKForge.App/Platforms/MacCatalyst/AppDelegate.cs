@@ -17,6 +17,10 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
         IosSecurityScope.RestoreAll();
 #endif
         var launched = base.FinishedLaunching(application, launchOptions);
+        PKForge.App.Services.Perf.Mark("FinishedLaunching");
+#if PKF_AUTOMATION
+        Automation.StartIfRequested();
+#endif
         MacPadInput.StartControllers();
         // A key or button held while the app loses focus never sends its release: let go of everything.
         NSNotificationCenter.DefaultCenter.AddObserver(UIApplication.WillResignActiveNotification, _ => { MacPadInput.ReleaseAll(); ForgetKeys(); });
@@ -31,11 +35,34 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
         if (builder.System != UIMenuSystem.MainSystem) return;
         var secondScreen = UIKeyCommand.Create((NSString)"Second Screen", null, ToggleSecondScreenSelector, "2", UIKeyModifierFlags.Command, null);
         builder.InsertChildMenuAtStart(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [secondScreen]), UIMenuIdentifier.Window.GetConstant()!);
+        // File ▸ Save Changes (⌘S): the editor's Save changes button, the Mac's usual save key.
+        var save = UIKeyCommand.Create((NSString)"Save Changes", null, SaveChangesSelector, "s", UIKeyModifierFlags.Command, null);
+        builder.InsertChildMenuAtStart(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [save]), UIMenuIdentifier.File.GetConstant()!);
         var controls = UICommand.Create("Keyboard & Controller", null, new ObjCRuntime.Selector("pkfShowControls:"), null);
         builder.InsertChildMenuAtStart(UIMenu.Create(string.Empty, null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, [controls]), UIMenuIdentifier.Help.GetConstant()!);
     }
 
     private static readonly ObjCRuntime.Selector ToggleSecondScreenSelector = new("pkfToggleSecondScreen:");
+    private static readonly ObjCRuntime.Selector SaveChangesSelector = new("pkfSaveChanges:");
+
+    /// <summary>The storage screen's view model while that screen has the input (no menu over it) and a Pokémon is selected.</summary>
+    internal static ViewModels.BoxBrowserViewModel? EditorInFront()
+    {
+        var services = IPlatformApplication.Current?.Services;
+        if (services?.GetService<PKForge.App.Services.GamepadRouter>()?.TopName != nameof(Views.BoxBrowserPage)) return null;
+        var box = services.GetService<ViewModels.BoxBrowserViewModel>();
+        return box is { Selected: not null } && box.SaveEditCommand.CanExecute(null) ? box : null;
+    }
+
+    [Export("pkfSaveChanges:")]
+    private void SaveChanges(NSObject? sender) => SaveFromMenu();
+
+    internal static bool SaveFromMenu()
+    {
+        if (EditorInFront() is not { } box) return false;
+        box.SaveEditCommand.Execute(null);
+        return true;
+    }
 
     private static MacSecondaryDisplayHost? SecondScreen =>
         IPlatformApplication.Current?.Services.GetService<Domain.ISecondaryDisplayHost>() as MacSecondaryDisplayHost;
@@ -50,6 +77,8 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
         base.ValidateCommand(command);
         if (command.Action == ToggleSecondScreenSelector)
             command.State = SecondScreen?.IsAvailable == true ? UIMenuElementState.On : UIMenuElementState.Off;
+        if (command.Action == SaveChangesSelector)
+            command.Attributes = EditorInFront() is null ? UIMenuElementAttributes.Disabled : 0;
     }
 
     [Export("pkfShowControls:")]
@@ -57,14 +86,16 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
     {
         if (MacWindowChrome.MainPresenter() is not { } presenter) return;
         var alert = UIAlertController.Create("Keyboard & Controller",
-            "D-pad: arrow keys\n" +
-            "A: Return, Space or X\n" +
-            "B: Esc, Delete or Z\n" +
-            "X: S    Y: A\n" +
-            "L: Q    R: W\n" +
-            "Start: Tab    Select: right Shift\n\n" +
-            "Any Xbox, PlayStation, Switch or MFi controller works as the pad; the left stick moves like the d-pad.\n" +
-            "Right-click (or hold a click) does what a long press does on Android.",
+            "Press what the hints show. Without a controller they name the keys.\n\n" +
+            "Move: arrow keys\n" +
+            "A (confirm): Return or Space    B (back): Esc or Delete\n" +
+            "X, Y: the X and Y keys    L, R: L and R, or Page Up / Page Down\n" +
+            "+ (menu): + or Tab    − (select): −\n" +
+            "⌘S: save the edited Pokémon\n\n" +
+            "Mouse: click a Pokémon to select it, click it again to pick it up, click a slot to put it down. " +
+            "Or drag it: let go on a slot to move or swap it, hold it at the box's left or right edge to change boxes, let go outside to put it back. " +
+            "Right-click a Pokémon for its menu. Scroll or swipe sideways over a box to change boxes.\n\n" +
+            "Any Xbox, PlayStation, Switch or MFi controller works as the pad; the left stick moves like the d-pad.",
             UIAlertControllerStyle.Alert);
         var ok = UIAlertAction.Create("OK", UIAlertActionStyle.Default, null);
         alert.AddAction(ok);
@@ -118,7 +149,9 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
             base.PressesCancelled(presses, evt);
     }
 
-    private static readonly HashSet<UIKeyboardHidUsage> KeysDown = [];
+    /// <summary>Held keys and the button each pressed: a release lets go of that button even when
+    /// its modifiers (and so its character) changed in between.</summary>
+    private static readonly Dictionary<UIKeyboardHidUsage, PKForge.App.Services.PadButton> KeysDown = [];
 
     /// <summary>Forgets held keys; paired with <see cref="MacPadInput.ReleaseAll"/> on focus loss.</summary>
     public static void ForgetKeys() => KeysDown.Clear();
@@ -138,12 +171,16 @@ public sealed class AppDelegate : MauiUIApplicationDelegate
     public static bool RouteKey(UIPress press, bool down)
     {
         if (press.Key is not { } key) return false;
-        if (down && (key.ModifierFlags & (UIKeyModifierFlags.Command | UIKeyModifierFlags.Control | UIKeyModifierFlags.Alternate)) != 0)
+        if (!down)
+        {
+            if (KeysDown.Remove(key.KeyCode, out var held)) { MacPadInput.Release(held); return true; }
+            return MacPadInput.Resolve(key.KeyCode, key.CharactersIgnoringModifiers) is not null;
+        }
+        if ((key.ModifierFlags & (UIKeyModifierFlags.Command | UIKeyModifierFlags.Control | UIKeyModifierFlags.Alternate)) != 0)
             return false;
-        if (MacPadInput.Resolve(key.KeyCode) is not { } button) return false;
-        if (down)
-            return !KeysDown.Add(key.KeyCode) || MacPadInput.Press(button);
-        if (KeysDown.Remove(key.KeyCode)) MacPadInput.Release(button);
-        return true;
+        if (MacPadInput.Resolve(key.KeyCode, key.CharactersIgnoringModifiers) is not { } button) return false;
+        if (KeysDown.ContainsKey(key.KeyCode)) return true; // key repeat: the pad repeats on its own
+        KeysDown[key.KeyCode] = button;
+        return MacPadInput.Press(button);
     }
 }

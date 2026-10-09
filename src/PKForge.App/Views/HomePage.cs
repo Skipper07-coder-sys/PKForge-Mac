@@ -30,6 +30,7 @@ public sealed class HomePage : ContentPage, IPadHandler
 
     public HomePage(SavePickerViewModel viewModel)
     {
+        Perf.Mark("HomePage ctor");
         _viewModel = viewModel;
         BindingContext = viewModel;
         Title = "PKForge";
@@ -255,6 +256,7 @@ public sealed class HomePage : ContentPage, IPadHandler
 
     protected override void OnAppearing()
     {
+        Perf.Mark("HomePage appearing");
         base.OnAppearing();
         _isAppearing = true;
         if (!_crashOffered)
