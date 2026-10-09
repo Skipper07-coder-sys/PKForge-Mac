@@ -29,6 +29,9 @@ public static class PointerAnchor
         }
     }
 
+    /// <summary>Drops the last click: a picker opened by a menu choice belongs to that menu, not to a field.</summary>
+    public static void Forget() => _at = long.MinValue / 2;
+
     /// <summary>The last click in <paramref name="view"/>'s coordinates, when it was just now and in its window.</summary>
     public static Point? Recent(View view)
     {

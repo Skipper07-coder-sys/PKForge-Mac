@@ -28,8 +28,9 @@ public sealed class PKForgeApplication : UIApplication
                     AppDelegate.RouteKey(press, down: true);
 #endif
             }
-        base.SendEvent(uiEvent);
+        // Recorded first: a menu that closes on this click forgets it, and must not see it come back.
         if (uiEvent.Type == UIEventType.Touches) PointerAnchor.Record(uiEvent);
+        base.SendEvent(uiEvent);
 #if IOS
         if (uiEvent.Type == UIEventType.Touches) SettleCanvasTouches(uiEvent);
 #endif

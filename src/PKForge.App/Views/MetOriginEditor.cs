@@ -232,6 +232,9 @@ internal sealed class EditorMenu : IPadHandler
     {
         if (_router is not null) _router.Remove(this);
         _host.Remove(_overlay);
+#if MACCATALYST
+        PointerAnchor.Forget(); // a picker this choice opens is not under a field: it stays centred
+#endif
         _result.TrySetResult(result);
     }
 }
