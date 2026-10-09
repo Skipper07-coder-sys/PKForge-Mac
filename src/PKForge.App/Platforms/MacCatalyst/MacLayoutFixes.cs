@@ -39,6 +39,12 @@ public static class MacLayoutFixes
             Hooked.Add(list, platform);
             MainThread.BeginInvokeOnMainThread(() => TrackContentHeight(list, platform));
         });
+
+        // UIKit's focus ring for a focused text field never showed (the app draws its own focus
+        // look), but placing it passed NaN to CoreGraphics on every focus change: dozens of
+        // console errors per click into a field. Text fields go without it.
+        EntryHandler.Mapper.AppendToMapping("PKForgeNoFocusRing", (handler, _) => handler.PlatformView.FocusEffect = null);
+        EditorHandler.Mapper.AppendToMapping("PKForgeNoFocusRing", (handler, _) => handler.PlatformView.FocusEffect = null);
     }
 
     private static void TrackContentHeight(CollectionView list, UIView platform, int attempt = 0)
