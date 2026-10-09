@@ -31,9 +31,7 @@ public sealed class PKForgeApplication : UIApplication
         // Recorded first: a menu that closes on this click forgets it, and must not see it come back.
         if (uiEvent.Type == UIEventType.Touches) PointerAnchor.Record(uiEvent);
         base.SendEvent(uiEvent);
-#if IOS
         if (uiEvent.Type == UIEventType.Touches) SettleCanvasTouches(uiEvent);
-#endif
     }
 
     /// <summary>
@@ -73,20 +71,24 @@ public sealed class PKForgeApplication : UIApplication
         }
     }
 
-#if IOS
     /// <summary>
     /// SkiaSharp's canvas touch recognizer reports touches but never leaves the "possible" state.
-    /// iOS then holds back every other tap in the window until it gives up on it (about 30 s), so
-    /// the app looks frozen after touching a canvas. Once a touch sequence ends, fail any still waiting.
+    /// UIKit then holds back every other tap or click in the window until it gives up on it (about
+    /// 30 s): on iOS the app looks frozen, on the Mac the buttons beside the box ignore clicks.
+    /// Once a touch sequence ends, fail any still waiting.
     /// </summary>
     private static void SettleCanvasTouches(UIEvent uiEvent)
     {
         var touches = uiEvent.AllTouches?.ToArray<UITouch>() ?? [];
         if (touches.Length == 0 || touches.Any(touch => touch.Phase is not (UITouchPhase.Ended or UITouchPhase.Cancelled))) return;
+        var settled = 0;
         foreach (var touch in touches)
             foreach (var recognizer in touch.GestureRecognizers ?? [])
                 if (recognizer.State == UIGestureRecognizerState.Possible && recognizer.GetType().Name == "SKTouchHandler")
+                {
                     recognizer.State = UIGestureRecognizerState.Failed;
+                    settled++;
+                }
+        if (settled > 0) Services.AppLog.Info("touch", $"Released {settled} stuck canvas touch recognizer(s)");
     }
-#endif
 }
