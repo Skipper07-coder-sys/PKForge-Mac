@@ -81,14 +81,9 @@ public sealed class PKForgeApplication : UIApplication
     {
         var touches = uiEvent.AllTouches?.ToArray<UITouch>() ?? [];
         if (touches.Length == 0 || touches.Any(touch => touch.Phase is not (UITouchPhase.Ended or UITouchPhase.Cancelled))) return;
-        var settled = 0;
         foreach (var touch in touches)
             foreach (var recognizer in touch.GestureRecognizers ?? [])
                 if (recognizer.State == UIGestureRecognizerState.Possible && recognizer.GetType().Name == "SKTouchHandler")
-                {
                     recognizer.State = UIGestureRecognizerState.Failed;
-                    settled++;
-                }
-        if (settled > 0) Services.AppLog.Info("touch", $"Released {settled} stuck canvas touch recognizer(s)");
     }
 }
