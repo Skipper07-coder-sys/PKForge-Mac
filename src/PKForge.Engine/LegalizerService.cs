@@ -246,9 +246,9 @@ public sealed class LegalizerService : ILegalizerService
     /// Repairs a Pokémon while keeping as much of it as stays legal. First the smallest repair: EVs
     /// cut to a legal spread and moves it can never know dropped, nothing else touched. Then a caught
     /// Pokémon is rebuilt at its own met location; failing that (or for a hatched one) Auto-Legality
-    /// makes it, searching encounters of its own kind first (eggs allow any PID, so a caught shiny
-    /// used to come back hatched). Either way its game, trainer, ball, level, EXP, moves, name, item,
-    /// PID and IVs, ability and EVs go back on wherever the result stays legal.
+    /// makes it, searching its own game and encounters of its own kind first (eggs allow any PID, so a
+    /// caught shiny used to come back hatched). Either way its game, trainer, ball, level, EXP, moves,
+    /// name, item, PID and IVs, ability and EVs go back on wherever the result stays legal.
     /// </summary>
     internal static PKM LegalizeKeepingOrigin(SaveFile save, PKM current, Shiny shinyKind = Shiny.Always)
     {
@@ -272,18 +272,32 @@ public sealed class LegalizerService : ILegalizerService
         var start = spreads.Count > 0 ? WithEVs(current, spreads[^1]) : current;
         // The analysis's best match for a broken Pokémon is not always its kind of origin: eggs fit
         // any PID, a wrong ball fits a catch. Only a match of its own kind leads the search, and
-        // encounters of that kind go first.
-        var lead = (analysis.EncounterOriginal is IEncounterEgg) == hatched ? analysis : null;
+        // encounters of that kind go first. A gift egg (Riley's Riolu) is an egg too, not only a
+        // bred one; without the lead a hatched gift came back from the Day-Care. (Auto-Legality
+        // finds the lead by reference and makes bred eggs afresh on every search, so a bred egg
+        // never leads: only a catch, gift or event match can.)
+        var lead = analysis.EncounterOriginal.IsEgg == hatched ? analysis : null;
         PKM repaired;
         lock (TrainerGenerationLock)
         {
             var previous = EncounterMovesetGenerator.PriorityList;
+            var previousPriority = APILegality.GameVersionPriority;
+            var previousOrder = APILegality.PriorityOrder;
             try
             {
                 EncounterMovesetGenerator.PriorityList = hatched ? EggsFirst : CatchesFirst;
+                // Its own game first. Auto-Legality searches the newest game first, so an Emerald
+                // Pokémon was made in Colosseum/XD or hatched in LeafGreen before Emerald was tried.
+                APILegality.GameVersionPriority = GameVersionPriorityType.PriorityOrder;
+                APILegality.PriorityOrder = [current.Version, .. GameUtil.GameVersions.Where(z => z != current.Version)];
                 repaired = AutoLegalize(save, start, moves, lead);
             }
-            finally { EncounterMovesetGenerator.PriorityList = previous; }
+            finally
+            {
+                EncounterMovesetGenerator.PriorityList = previous;
+                APILegality.GameVersionPriority = previousPriority;
+                APILegality.PriorityOrder = previousOrder;
+            }
         }
         return KeepWhatItCan(repaired, current, moves, evs, shinyKind);
     }
