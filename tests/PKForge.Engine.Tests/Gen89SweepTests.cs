@@ -32,8 +32,10 @@ public sealed class Gen89SweepTests
         using var session = engine.OpenBlankSession(generation);
         var legalizer = new LegalizerService();
         var watch = Stopwatch.StartNew();
+        // Lv 100: the legendaries and Mythicals here have no legal encounter at Lv 50. This said 50, which the AutoMod
+        // silently regenerated as 100 until LegalizerService cleared ForceLevel100for50.
         var outcome = legalizer.Generate(session, 0, 0,
-            new GenerationRequest(species, 50, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
+            new GenerationRequest(species, 100, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
         watch.Stop();
         var ot = outcome.Success ? session.ReadEntity(0, 0).OriginalTrainer : "-";
         Output.WriteLine($"g{generation} species {species}: {watch.ElapsedMilliseconds}ms success={outcome.Success} ot={ot} msg={outcome.Message}");
@@ -49,7 +51,7 @@ public sealed class Gen89SweepTests
         using var session = engine.OpenBlankSession(8);
         var legalizer = new LegalizerService();
         var outcome = legalizer.Generate(session, 0, 0,
-            new GenerationRequest(species, 50, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
+            new GenerationRequest(species, 100, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
         Output.WriteLine($"g8 species {species}: success={outcome.Success} msg={outcome.Message}");
         // PLA natives (899-905) never legally enter Sword/Shield: rejected honestly,
         // and the dex picker never offers them there (SwSh MaxSpeciesID = 898).

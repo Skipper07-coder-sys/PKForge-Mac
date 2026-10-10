@@ -24,8 +24,10 @@ public sealed class Gen6MythicalTests
         var blank = BlankSaveFile.Get(version, "PKForge", LanguageID.English);
         using var session = new SaveEngineSession(blank, version.ToString());
         var legalizer = new LegalizerService();
+        // Lv 100: the legendaries and Mythicals here have no legal encounter at Lv 50. This said 50, which the AutoMod
+        // silently regenerated as 100 until LegalizerService cleared ForceLevel100for50.
         var outcome = legalizer.Generate(session, 0, 0,
-            new GenerationRequest(species, 50, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
+            new GenerationRequest(species, 100, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
         Output.WriteLine($"{version} species {species}: success={outcome.Success} msg={outcome.Message}");
         if (outcome.Success)
             Output.WriteLine("  OT=" + session.ReadEntity(0, 0).OriginalTrainer);

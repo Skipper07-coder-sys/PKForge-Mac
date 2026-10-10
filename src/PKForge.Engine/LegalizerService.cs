@@ -26,6 +26,9 @@ public sealed class LegalizerService : ILegalizerService
         APILegality.EnableDevMode = true;
         // Unfixable mons must fail, not become the ALM's joke Pokémon (a shiny Stunfisk named PANCAKE).
         Legalizer.EnableEasterEggs = false;
+        // A save editor's "Level: 50" means Lv 50. The AutoMod's VGC shortcut (on by default) rebuilt
+        // every Showdown set or create-form request at exactly Lv 50 as Lv 100, and still called it legal.
+        APILegality.ForceLevel100for50 = false;
     }
 
     public GenerationOutcome Generate(ISaveEngineSession session, int box, int slot, GenerationRequest request)

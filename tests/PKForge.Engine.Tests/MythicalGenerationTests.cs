@@ -32,9 +32,11 @@ public sealed class MythicalGenerationTests
         var engine = new SaveEngine();
         using var session = engine.OpenBlankSession(7);
         var legalizer = new LegalizerService(); // ownership stamp on, the default
+// Lv 100: the legendaries and Mythicals here have no legal encounter at Lv 50. This said 50, which the AutoMod
+// silently regenerated as 100 until LegalizerService cleared ForceLevel100for50.
 
         var outcome = legalizer.Generate(session, 0, 0,
-            new GenerationRequest(species, 50, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
+            new GenerationRequest(species, 100, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
 
         Output.WriteLine($"species {species}: success={outcome.Success} message={outcome.Message}");
         Assert.True(outcome.Success, outcome.Message);
@@ -54,7 +56,7 @@ public sealed class MythicalGenerationTests
         var legalizer = new LegalizerService();
 
         var outcome = legalizer.Generate(session, 0, 0,
-            new GenerationRequest(species, 50, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
+            new GenerationRequest(species, 100, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
 
         Assert.True(outcome.Success, outcome.Message);
         Assert.Equal("PKForge", session.ReadEntity(0, 0).OriginalTrainer);
@@ -68,7 +70,7 @@ public sealed class MythicalGenerationTests
         var legalizer = new LegalizerService(new NoOwnership());
 
         var outcome = legalizer.Generate(session, 0, 0,
-            new GenerationRequest(802, 50, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
+            new GenerationRequest(802, 100, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
 
         Assert.True(outcome.Success, outcome.Message);
         Assert.Equal(802, session.ReadEntity(0, 0).Species);
@@ -85,7 +87,7 @@ public sealed class MythicalGenerationTests
         var legalizer = new LegalizerService();
 
         var outcome = legalizer.Generate(session, 0, 0,
-            new GenerationRequest(species, 50, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
+            new GenerationRequest(species, 100, Shiny: false, Nature: null, Ability: null, Ball: null, Moves: null, Form: 0));
 
         Output.WriteLine($"species {species}: success={outcome.Success} message={outcome.Message}");
         Assert.False(outcome.Success);
