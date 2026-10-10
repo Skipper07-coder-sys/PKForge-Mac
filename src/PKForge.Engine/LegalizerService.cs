@@ -159,13 +159,6 @@ public sealed class LegalizerService : ILegalizerService
     }
 
     /// <summary>
-    /// Auto-Legality, told to keep where the Pokémon came from. It was handed no analysis of
-    /// the current Pokémon, so its own "try the original encounter first" step never ran, and
-    /// it tries eggs before every other encounter: eggs allow any PID, so a caught shiny came
-    /// back hatched. A Pokémon that was not an egg now tries its original catch encounter,
-    /// then wild, static, trade and event ones, and eggs last; its ball stays when still legal.
-    /// </summary>
-    /// <summary>
     /// Encounter order for making or repairing a Pokémon: a catch (wild or static) first,
     /// then an egg, and only then events and in-game trades, which carry another trainer.
     /// Auto-Legality's default puts eggs first, and an egg fits almost any request.
@@ -173,6 +166,13 @@ public sealed class LegalizerService : ILegalizerService
     private static readonly EncounterTypeGroup[] CatchesFirst =
         [EncounterTypeGroup.Slot, EncounterTypeGroup.Static, EncounterTypeGroup.Egg, EncounterTypeGroup.Mystery, EncounterTypeGroup.Trade];
 
+    /// <summary>
+    /// Auto-Legality, told to keep where the Pokémon came from. It was handed no analysis of
+    /// the current Pokémon, so its own "try the original encounter first" step never ran, and
+    /// it tries eggs before every other encounter: eggs allow any PID, so a caught shiny came
+    /// back hatched. A Pokémon that was not an egg now tries its original catch encounter,
+    /// then wild, static, trade and event ones, and eggs last; its ball stays when still legal.
+    /// </summary>
     internal static PKM LegalizeKeepingOrigin(SaveFile save, PKM current, Shiny shinyKind = Shiny.Always)
     {
         var analysis = new LegalityAnalysis(current);
@@ -209,9 +209,9 @@ public sealed class LegalizerService : ILegalizerService
 
     /// <summary>
     /// Rebuilds the Pokémon from an encounter at its own met location and game, keeping what
-    /// the player asked for (shiny, gender, nature) and, where still legal, its ball, level,
-    /// moves and nickname. Auto-Legality walks every encounter of the species first and ran
-    /// out of time before reaching the right place; this goes straight there. Null when no
+    /// the player asked for (species, shiny, gender, nature) and, where still legal, its ball,
+    /// level, moves and nickname. Auto-Legality walks every encounter of the species first and
+    /// ran out of time before reaching the right place; this goes straight there. Null when no
     /// encounter there yields a legal Pokémon.
     /// </summary>
     private static PKM? RegenerateAtOrigin(SaveFile save, PKM current, LegalityAnalysis analysis, Shiny shinyKind)
@@ -220,15 +220,19 @@ public sealed class LegalizerService : ILegalizerService
         // Only the moves it can really know: an unlearnable one would rule out every encounter.
         var moves = new[] { current.Move1, current.Move2, current.Move3, current.Move4 }
             .Where((m, i) => m != 0 && analysis.Info.Moves[i].Valid).ToArray();
-        return RegenerateAtOrigin(save, current, moves, shinyKind)
-            ?? (moves.Length > 0 ? RegenerateAtOrigin(save, current, [], shinyKind) : null);
+        // The encounter the analysis matched is where it really came from (a Ralts met at Lv 7);
+        // other encounters at the same place can be a later stage met higher (a Lv 60 Kirlia).
+        var matched = analysis.EncounterOriginal is EncounterInvalid ? null : analysis.EncounterOriginal;
+        return RegenerateAtOrigin(save, current, matched, moves, shinyKind)
+            ?? (moves.Length > 0 ? RegenerateAtOrigin(save, current, matched, [], shinyKind) : null);
     }
 
-    private static PKM? RegenerateAtOrigin(SaveFile save, PKM current, ushort[] moves, Shiny shinyKind)
+    private static PKM? RegenerateAtOrigin(SaveFile save, PKM current, IEncounterable? matched, ushort[] moves, Shiny shinyKind)
     {
         var template = current.Clone();
-        var here = EncounterMovesetGenerator.GenerateEncounters(template, save, moves, current.Version)
-            .Where(e => e is not IEncounterEgg && e is ILocation l && l.Location == current.MetLocation)
+        var generated = EncounterMovesetGenerator.GenerateEncounters(template, save, moves, current.Version);
+        var here = (matched is null ? generated : generated.Prepend(matched)).Distinct()
+            .Where(e => e is not IEncounterEgg && e.Location == current.MetLocation)
             .Take(32);
         var criteria = new EncounterCriteria
         {
@@ -236,6 +240,9 @@ public sealed class LegalizerService : ILegalizerService
             Gender = current.Gender is 0 or 1 ? (Gender)current.Gender : Gender.Random,
             Nature = current.Nature,
         };
+        // An encounter that comes out above the Pokémon's level (Sword/Shield's Wild Area statics
+        // are made at Lv 60) is kept only when no encounter there fits the level it has now.
+        PKM? higher = null;
         foreach (var encounter in here)
         {
             PKM made;
@@ -252,15 +259,49 @@ public sealed class LegalizerService : ILegalizerService
             for (var tries = 0; tries < 64 && !IsShinyAsAsked(made, current.IsShiny, shinyKind); tries++)
                 made = TryKeep(made, pk => { if (current.IsShiny) pk.SetShiny(shinyKind); else pk.SetUnshiny(); });
             if (!IsShinyAsAsked(made, current.IsShiny, shinyKind) || !new LegalityAnalysis(made).Valid) continue;
+            // The encounter is often an earlier stage (a gift Mudkip for a Swampert).
+            if (EvolveInto(made, current) is not { } evolved) continue;
+            made = evolved;
 
             // Put back what the player chose wherever the result stays legal.
             made = TryKeep(made, pk => pk.Ball = current.Ball);
             if (current.CurrentLevel > made.CurrentLevel) made = TryKeep(made, pk => { pk.CurrentLevel = current.CurrentLevel; pk.ResetPartyStats(); });
             if (moves.Length > 0) made = TryKeep(made, pk => { pk.SetMoves(moves); pk.HealPP(); });
             if (current.IsNicknamed) made = TryKeep(made, pk => pk.SetNickname(current.Nickname));
-            return made;
+            if (made.CurrentLevel <= current.CurrentLevel) return made;
+            higher ??= made;
         }
-        return null;
+        return higher;
+    }
+
+    /// <summary>
+    /// Evolves a Pokémon made from an encounter into <paramref name="current"/>'s species and
+    /// form at its level, as the games do: same PID and ability slot, the new species' ability,
+    /// size and default name. Unchanged when it already is that species; null when the
+    /// evolved Pokémon is not legal.
+    /// </summary>
+    private static PKM? EvolveInto(PKM made, PKM current)
+    {
+        if (made.Species == current.Species && made.Form == current.Form) return made;
+        // Read before the species changes: Gen 3 has no nickname flag and compares the name with
+        // the species, so a Swampert still called "MUDKIP" would count as nicknamed.
+        var nicknamed = made.IsNicknamed;
+        var evolved = made.Clone();
+        evolved.Species = current.Species;
+        evolved.Form = current.Form;
+        evolved.CurrentLevel = Math.Max(made.CurrentLevel, current.CurrentLevel);
+        // Gen 3 keeps an ability bit and reads the ability off the species; later formats store it.
+        if (evolved.Format >= 4)
+            evolved.RefreshAbility(evolved.AbilityNumber >> 1);
+        if (evolved is IScaledSizeValue size)
+        {
+            size.HeightAbsolute = size.CalcHeightAbsolute;
+            size.WeightAbsolute = size.CalcWeightAbsolute;
+        }
+        if (!nicknamed) evolved.ClearNickname();
+        evolved.ResetPartyStats();
+        evolved.RefreshChecksum();
+        return new LegalityAnalysis(evolved).Valid ? evolved : null;
     }
 
     private static bool IsShinyAsAsked(PKM pk, bool shiny, Shiny kind) => !shiny ? !pk.IsShiny : kind switch
