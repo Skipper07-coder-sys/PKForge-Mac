@@ -238,76 +238,118 @@ public sealed class LegalizerService : ILegalizerService
     private static readonly EncounterTypeGroup[] CatchesFirst =
         [EncounterTypeGroup.Slot, EncounterTypeGroup.Static, EncounterTypeGroup.Egg, EncounterTypeGroup.Mystery, EncounterTypeGroup.Trade];
 
+    /// <summary>The same for repairing a hatched Pokémon: it stays hatched whenever it can.</summary>
+    private static readonly EncounterTypeGroup[] EggsFirst =
+        [EncounterTypeGroup.Egg, EncounterTypeGroup.Slot, EncounterTypeGroup.Static, EncounterTypeGroup.Mystery, EncounterTypeGroup.Trade];
+
     /// <summary>
-    /// Auto-Legality, told to keep where the Pokémon came from. It was handed no analysis of
-    /// the current Pokémon, so its own "try the original encounter first" step never ran, and
-    /// it tries eggs before every other encounter: eggs allow any PID, so a caught shiny came
-    /// back hatched. A Pokémon that was not an egg now tries its original catch encounter,
-    /// then wild, static, trade and event ones, and eggs last; its ball stays when still legal.
+    /// Repairs a Pokémon while keeping as much of it as stays legal. First the smallest repair: EVs
+    /// cut to a legal spread and moves it can never know dropped, nothing else touched. Then a caught
+    /// Pokémon is rebuilt at its own met location; failing that (or for a hatched one) Auto-Legality
+    /// makes it, searching encounters of its own kind first (eggs allow any PID, so a caught shiny
+    /// used to come back hatched). Either way its game, trainer, ball, level, EXP, moves, name, item,
+    /// PID and IVs, ability and EVs go back on wherever the result stays legal.
     /// </summary>
     internal static PKM LegalizeKeepingOrigin(SaveFile save, PKM current, Shiny shinyKind = Shiny.Always)
     {
-        // The smallest repair first: a Pokémon illegal only through its EVs keeps everything else.
-        var trimmed = WithEVsInCaps(current);
-        if (trimmed is not null && new LegalityAnalysis(trimmed).Valid)
-            return trimmed;
-        // Auto-Legality reads the set back from the Pokémon, EVs included: hand it legal ones.
-        var start = trimmed ?? current;
-
         var analysis = new LegalityAnalysis(current);
-        if (current.IsEgg || current.WasEgg)
-            return save.Legalize(start.Clone(), analysis);
-        if (RegenerateAtOrigin(save, current, analysis, shinyKind) is { } atOrigin)
-            return atOrigin;
-        // The analysis's best match for a broken caught Pokémon is often an egg (eggs fit any
-        // PID): handing it over would put the egg first. Only a real catch leads the search.
-        var lead = analysis.EncounterOriginal is IEncounterEgg ? null : analysis;
+        var spreads = LegalEVSpreads(current);
+        var moves = KnowableMoves(current, analysis);
+        // The smallest repair first: when cutting its EVs to a legal spread and dropping moves it can
+        // never know is enough, everything else stays as it was.
+        foreach (var small in SmallRepairs(current, spreads, moves))
+            if (new LegalityAnalysis(small).Valid)
+                return small;
 
+        // Its own EVs, or when they are not legal as they are, the closest spreads that may be.
+        IReadOnlyList<int[]> evs = spreads.Count > 0 ? spreads : [EVsOf(current)];
+        var hatched = WasHatched(current);
+        if (!hatched && RegenerateAtOrigin(save, current, analysis, moves, evs, shinyKind) is { } atOrigin)
+            return atOrigin;
+
+        // Auto-Legality reads the set back from the Pokémon, EVs included: hand it the most cautious
+        // spread. Whatever of the Pokémon stays legal goes back on what it makes.
+        var start = spreads.Count > 0 ? WithEVs(current, spreads[^1]) : current;
+        // The analysis's best match for a broken Pokémon is not always its kind of origin: eggs fit
+        // any PID, a wrong ball fits a catch. Only a match of its own kind leads the search, and
+        // encounters of that kind go first.
+        var lead = (analysis.EncounterOriginal is IEncounterEgg) == hatched ? analysis : null;
         PKM repaired;
         lock (TrainerGenerationLock)
         {
             var previous = EncounterMovesetGenerator.PriorityList;
             try
             {
-                EncounterMovesetGenerator.PriorityList =
-                    CatchesFirst;
-                repaired = save.Legalize(start.Clone(), lead); // Legalize rewrites the mon it is given
+                EncounterMovesetGenerator.PriorityList = hatched ? EggsFirst : CatchesFirst;
+                repaired = AutoLegalize(save, start, moves, lead);
             }
             finally { EncounterMovesetGenerator.PriorityList = previous; }
         }
+        return KeepWhatItCan(repaired, current, moves, evs, shinyKind);
+    }
 
-        if (repaired.Ball != current.Ball)
-        {
-            var withBall = repaired.Clone();
-            withBall.Ball = current.Ball;
-            withBall.RefreshChecksum();
-            if (new LegalityAnalysis(withBall).Valid) repaired = withBall;
-        }
-        return repaired;
+    /// <summary>Hatched from an egg. Gen 3 keeps no egg date: a hatched Pokémon is met at level 0.</summary>
+    private static bool WasHatched(PKM pk) => pk.IsEgg || pk.WasEgg || (pk.Format == 3 && pk.MetLevel == 0);
+
+    /// <summary>The moves it can really know: an unlearnable one would rule out every encounter.</summary>
+    private static ushort[] KnowableMoves(PKM pk, LegalityAnalysis analysis) =>
+        new[] { pk.Move1, pk.Move2, pk.Move3, pk.Move4 }.Where((m, i) => m != 0 && analysis.Info.Moves[i].Valid).ToArray();
+
+    private static int MoveCount(PKM pk) => new[] { pk.Move1, pk.Move2, pk.Move3, pk.Move4 }.Count(m => m != 0);
+
+    /// <summary>
+    /// The Pokémon itself with only its EVs cut to a legal spread; then with only the moves it can
+    /// never know dropped (PP refilled); then with both.
+    /// </summary>
+    private static IEnumerable<PKM> SmallRepairs(PKM current, List<int[]> spreads, ushort[] moves)
+    {
+        foreach (var spread in spreads)
+            yield return WithEVs(current, spread);
+        if (moves.Length == 0 || moves.Length == MoveCount(current))
+            yield break;
+        var fewer = current.Clone();
+        fewer.SetMoves(moves);
+        fewer.RefreshChecksum();
+        yield return fewer;
+        foreach (var spread in spreads)
+            yield return WithEVs(fewer, spread);
+    }
+
+    /// <summary>
+    /// Auto-Legality on <paramref name="start"/>; when that finds nothing, again with only the moves
+    /// the Pokémon can really know, since one it can never learn rules out every encounter.
+    /// </summary>
+    private static PKM AutoLegalize(SaveFile save, PKM start, ushort[] moves, LegalityAnalysis? lead)
+    {
+        var made = save.Legalize(start.Clone(), lead); // Legalize rewrites the mon it is given
+        if (new LegalityAnalysis(made).Valid || moves.Length == MoveCount(start)) return made;
+        var fewer = start.Clone();
+        fewer.SetMoves(moves);
+        fewer.RefreshChecksum();
+        var retry = save.Legalize(fewer, lead);
+        return new LegalityAnalysis(retry).Valid ? retry : made;
     }
 
     /// <summary>
     /// Rebuilds the Pokémon from an encounter at its own met location and game, keeping what
-    /// the player asked for (species, shiny, gender, nature) and, where still legal, its ball,
-    /// level, moves, nickname, held item, IVs, ability and EVs (trimmed to the caps).
-    /// Auto-Legality walks every encounter of the species first and
-    /// ran out of time before reaching the right place; this goes straight there. Null when no
-    /// encounter there yields a legal Pokémon.
+    /// the player asked for (species, shiny, gender, nature) and, where still legal, everything
+    /// <see cref="KeepWhatItCan"/> puts back. Auto-Legality walks every encounter of the species
+    /// first and ran out of time before reaching the right place; this goes straight there. Null
+    /// when no encounter there yields a legal Pokémon.
     /// </summary>
-    private static PKM? RegenerateAtOrigin(SaveFile save, PKM current, LegalityAnalysis analysis, Shiny shinyKind)
+    private static PKM? RegenerateAtOrigin(SaveFile save, PKM current, LegalityAnalysis analysis,
+        ushort[] moves, IReadOnlyList<int[]> evs, Shiny shinyKind)
     {
         if (current.MetLocation == 0) return null;
-        // Only the moves it can really know: an unlearnable one would rule out every encounter.
-        var moves = new[] { current.Move1, current.Move2, current.Move3, current.Move4 }
-            .Where((m, i) => m != 0 && analysis.Info.Moves[i].Valid).ToArray();
         // The encounter the analysis matched is where it really came from (a Ralts met at Lv 7);
         // other encounters at the same place can be a later stage met higher (a Lv 60 Kirlia).
         var matched = analysis.EncounterOriginal is EncounterInvalid ? null : analysis.EncounterOriginal;
-        return RegenerateAtOrigin(save, current, matched, moves, shinyKind)
-            ?? (moves.Length > 0 ? RegenerateAtOrigin(save, current, matched, [], shinyKind) : null);
+        return RegenerateAtOrigin(save, current, matched, moves, evs, shinyKind)
+            ?? (moves.Length > 0 ? RegenerateAtOrigin(save, current, matched, [], evs, shinyKind) : null);
     }
 
-    private static PKM? RegenerateAtOrigin(SaveFile save, PKM current, IEncounterable? matched, ushort[] moves, Shiny shinyKind)
+    private static PKM? RegenerateAtOrigin(SaveFile save, PKM current, IEncounterable? matched, ushort[] moves,
+        IReadOnlyList<int[]> evs, Shiny shinyKind)
     {
         var template = current.Clone();
         var generated = EncounterMovesetGenerator.GenerateEncounters(template, save, moves, current.Version);
@@ -320,9 +362,6 @@ public sealed class LegalizerService : ILegalizerService
             Gender = current.Gender is 0 or 1 ? (Gender)current.Gender : Gender.Random,
             Nature = current.Nature,
         };
-        var ivs = current.GetIVs();
-        var evs = new int[6];
-        (WithEVsInCaps(current) ?? current).GetEVs(evs);
         // An encounter that comes out above the Pokémon's level (Sword/Shield's Wild Area statics
         // are made at Lv 60) is kept only when no encounter there fits the level it has now.
         PKM? higher = null;
@@ -344,25 +383,51 @@ public sealed class LegalizerService : ILegalizerService
             if (!IsShinyAsAsked(made, current.IsShiny, shinyKind) || !new LegalityAnalysis(made).Valid) continue;
             // The encounter is often an earlier stage (a gift Mudkip for a Swampert).
             if (EvolveInto(made, current) is not { } evolved) continue;
-            made = evolved;
 
-            // Put back what the player chose wherever the result stays legal.
-            made = TryKeep(made, pk => pk.Ball = current.Ball);
-            if (current.CurrentLevel > made.CurrentLevel) made = TryKeep(made, pk => { pk.CurrentLevel = current.CurrentLevel; pk.ResetPartyStats(); });
-            if (moves.Length > 0) made = TryKeep(made, pk => { pk.SetMoves(moves); pk.HealPP(); });
-            if (current.IsNicknamed) made = TryKeep(made, pk => pk.SetNickname(current.Nickname));
-            // And what it was trained with. Gen 3/4 tie the IVs to the PID, so its own PID and IVs
-            // go back together when that pair was a legal one, else the IVs alone.
-            if (current.HeldItem != 0) made = TryKeep(made, pk => pk.HeldItem = current.HeldItem);
-            var own = TryKeep(made, pk => TakeIdentity(pk, current));
-            if (IsShinyAsAsked(own, current.IsShiny, shinyKind)) made = own;
-            if (made.GetIVs() != ivs) made = TryKeep(made, pk => pk.SetIVs(ivs));
-            if (made.Ability != current.Ability) made = TryKeep(made, pk => TakeAbility(pk, current));
-            if (evs.Any(ev => ev != 0)) made = TryKeep(made, pk => { pk.SetEVs(evs); pk.ResetPartyStats(); });
+            made = KeepWhatItCan(evolved, current, moves, evs, shinyKind);
             if (made.CurrentLevel <= current.CurrentLevel) return made;
             higher ??= made;
         }
         return higher;
+    }
+
+    /// <summary>
+    /// Puts back on a rebuilt Pokémon what <paramref name="current"/> had, each part only where the
+    /// result stays legal: its game and met location, its trainer, ball, level, met level and EXP,
+    /// moves, name, held item, PID and IVs (as the pair they were, else the IVs alone), ability, EVs.
+    /// </summary>
+    private static PKM KeepWhatItCan(PKM made, PKM current, ushort[] moves, IReadOnlyList<int[]> evs, Shiny shinyKind)
+    {
+        made = TryKeep(made, pk => { pk.Version = current.Version; pk.MetLocation = current.MetLocation; });
+        made = TryKeep(made, pk => TakeTrainer(pk, current));
+        made = TryKeep(made, pk => pk.Ball = current.Ball);
+        // Its level, the level it was met at (a wild slot spans several) and its EXP into the level.
+        if (made.MetLevel != current.MetLevel || made.CurrentLevel != current.CurrentLevel)
+            made = TryKeep(made, pk => { pk.MetLevel = current.MetLevel; pk.CurrentLevel = current.CurrentLevel; pk.ResetPartyStats(); });
+        if (current.CurrentLevel > made.CurrentLevel) made = TryKeep(made, pk => { pk.CurrentLevel = current.CurrentLevel; pk.ResetPartyStats(); });
+        if (made.CurrentLevel == current.CurrentLevel && made.EXP != current.EXP) made = TryKeep(made, pk => pk.EXP = current.EXP);
+        if (moves.Length > 0) made = TryKeep(made, pk => { pk.SetMoves(moves); pk.HealPP(); });
+        if (current.IsNicknamed) made = TryKeep(made, pk => pk.SetNickname(current.Nickname));
+        // And what it was trained with. Gen 3/4 tie the IVs to the PID, so its own PID and IVs
+        // go back together when that pair was a legal one, else the IVs alone.
+        if (current.HeldItem != 0) made = TryKeep(made, pk => pk.HeldItem = current.HeldItem);
+        var own = TryKeep(made, pk => TakeIdentity(pk, current));
+        if (IsShinyAsAsked(own, current.IsShiny, shinyKind)) made = own;
+        var ivs = current.GetIVs();
+        if (made.GetIVs() != ivs) made = TryKeep(made, pk => pk.SetIVs(ivs));
+        if (made.Ability != current.Ability) made = TryKeep(made, pk => TakeAbility(pk, current));
+        return KeepEVs(made, evs);
+    }
+
+    /// <summary>The trainer of <paramref name="from"/>: name, ID, gender and language.</summary>
+    private static void TakeTrainer(PKM pk, PKM from)
+    {
+        var nicknamed = pk.IsNicknamed; // Gen 3 infers it from the name, which the language changes
+        pk.OriginalTrainerName = from.OriginalTrainerName;
+        pk.ID32 = from.ID32;
+        pk.OriginalTrainerGender = from.OriginalTrainerGender;
+        pk.Language = from.Language;
+        if (!nicknamed) pk.ClearNickname();
     }
 
     /// <summary>
@@ -395,15 +460,24 @@ public sealed class LegalizerService : ILegalizerService
         return new LegalityAnalysis(evolved).Valid ? evolved : null;
     }
 
-    /// <summary>
-    /// A copy whose EVs fit the format's caps (per stat, and 510 in all), cut in proportion so
-    /// the spread keeps its shape (six 252s become six 85s); null when they already fit.
-    /// </summary>
-    private static PKM? WithEVsInCaps(PKM pk)
+    private static int[] EVsOf(PKM pk)
     {
-        if (pk.Format < 3) return null; // Gen 1/2 stat experience has no total cap
         var evs = new int[6];
         pk.GetEVs(evs);
+        return evs;
+    }
+
+    /// <summary>
+    /// EV spreads to try instead of the Pokémon's own, closest first: its EVs cut to the format's
+    /// caps (per stat, 510 in all) in proportion, so the spread keeps its shape (six 252s become
+    /// six 85s); then, in Gen 3/4, the same rounded down to what vitamins give (multiples of 10, at
+    /// most 100 each), the only EVs a Pokémon can have when it has gained no EXP since it was met.
+    /// </summary>
+    private static List<int[]> LegalEVSpreads(PKM pk)
+    {
+        var spreads = new List<int[]>();
+        if (pk.Format < 3) return spreads; // Gen 1/2 stat experience has no total cap
+        var evs = EVsOf(pk);
         var capped = evs.Select(ev => Math.Min(ev, pk.MaxEV)).ToArray();
         var total = capped.Sum();
         if (total > EffortValues.Max510)
@@ -413,9 +487,31 @@ public sealed class LegalizerService : ILegalizerService
             for (var i = 0; i < 6 && capped.Sum() < EffortValues.Max510; i++)
                 if (capped[i] > 0 && capped[i] < pk.MaxEV) capped[i]++;
         }
-        if (capped.SequenceEqual(evs)) return null;
+        if (!capped.SequenceEqual(evs)) spreads.Add(capped);
+        if (pk.Format <= 4)
+        {
+            var vitamins = capped.Select(ev => Math.Min(ev, (int)EffortValues.MaxVitamins34) / 10 * 10).ToArray();
+            if (!vitamins.SequenceEqual(evs) && !vitamins.SequenceEqual(capped)) spreads.Add(vitamins);
+        }
+        return spreads;
+    }
+
+    /// <summary>The closest of <paramref name="spreads"/> that keeps <paramref name="made"/> legal.</summary>
+    private static PKM KeepEVs(PKM made, IReadOnlyList<int[]> spreads)
+    {
+        foreach (var spread in spreads)
+        {
+            if (EVsOf(made).SequenceEqual(spread)) return made;
+            var kept = TryKeep(made, pk => { pk.SetEVs(spread); pk.ResetPartyStats(); });
+            if (EVsOf(kept).SequenceEqual(spread)) return kept;
+        }
+        return made;
+    }
+
+    private static PKM WithEVs(PKM pk, int[] spread)
+    {
         var trimmed = pk.Clone();
-        trimmed.SetEVs(capped);
+        trimmed.SetEVs(spread);
         // The stats follow the EVs, the HP it has left does not (Gen 8+ keep it in the box too).
         trimmed.ResetPartyStats();
         trimmed.Stat_HPCurrent = Math.Min(pk.Stat_HPCurrent, trimmed.Stat_HPMax);
@@ -477,9 +573,9 @@ public sealed class LegalizerService : ILegalizerService
     /// <summary>Says so when the only legal repair had to change the origin, so it is never a surprise.</summary>
     private static string? OriginNote(PKM before, PKM after)
     {
-        if (!before.IsEgg && !before.WasEgg && (after.WasEgg || after.IsEgg))
+        if (!WasHatched(before) && WasHatched(after))
             return "No legal version keeps its catch origin, so it is now hatched from an egg.";
-        if (before.MetLocation != after.MetLocation && !after.WasEgg)
+        if (before.MetLocation != after.MetLocation && !WasHatched(after))
             return "Its met location changed to one where it can legally appear.";
         return null;
     }
