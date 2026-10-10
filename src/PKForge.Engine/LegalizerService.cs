@@ -72,6 +72,17 @@ public sealed class LegalizerService : ILegalizerService
         }
 
         var result = GenerateLegal(engineSession, set);
+        var legal = result.Status is LegalizationResult.Regenerated ? ConvertForSave(save, result.Created) : null;
+        if (allowUnsupportedSpecies && (legal is null || !MatchesRequest(legal, set, showdownText)))
+        {
+            var asWritten = BuildAsWritten(engineSession, set, showdownText, legal);
+            var hax = PlaceGenerated(save, asWritten, box, slot);
+            return hax is not null
+                ? new GenerationOutcome(false, hax)
+                : new GenerationOutcome(true, new LegalityAnalysis(asWritten).Valid
+                    ? "Generated - legal."
+                    : "Generated (HaX): built exactly as written; not legal.");
+        }
         if (result.Status is not LegalizationResult.Regenerated)
             return new GenerationOutcome(false,
                 result.Status switch
@@ -113,6 +124,67 @@ public sealed class LegalizerService : ILegalizerService
     /// <summary>HaX generation for species beyond the save's table: a plain mon of the
     /// save's own format carrying the set details, no encounter, no legality. The games
     /// have no data for the species, so behavior is explicitly not guaranteed.</summary>
+    /// <summary>
+    /// HaX: the set exactly as its text asks, legal or not. The base is the closest legal mon
+    /// (the request's own legal version, else the species alone at the level, else at any level)
+    /// so OT, met data and ball stay plausible; with none, a blank of the save's format. Every
+    /// field the text asks for is then written over it. IVs and friendship are forced only when
+    /// the text states them: Showdown defaults (31s, 255) are not a request.
+    /// </summary>
+    private PKM BuildAsWritten(SaveEngineSession session, ShowdownSet set, string text, PKM? closest)
+    {
+        var save = session.SaveFile;
+        var pk = closest?.Clone() ?? ClosestLegalBase(session, set) ?? BuildUnsupportedMon(save, set);
+        Span<int> ivs = stackalloc int[6];
+        pk.GetIVs(ivs);
+        var friendship = pk.CurrentFriendship;
+        pk.ApplySetDetails(set);
+        if (!States(text, "IVs:")) pk.SetIVs(ivs);
+        if (!States(text, "Friendship:")) pk.CurrentFriendship = friendship;
+        pk.ResetPartyStats();
+        pk.RefreshChecksum();
+        return pk;
+    }
+
+    private PKM? ClosestLegalBase(SaveEngineSession session, ShowdownSet set)
+    {
+        var species = _strings.specieslist[set.Species] + (set.FormName is { Length: > 0 } form ? $"-{form}" : "");
+        foreach (var minimal in new[] { $"{species}\nLevel: {set.Level}", species })
+        {
+            var result = GenerateLegal(session, new ShowdownSet(minimal));
+            if (result.Status is LegalizationResult.Regenerated)
+                return ConvertForSave(session.SaveFile, result.Created);
+        }
+        return null;
+    }
+
+    /// <summary>Whether a legal candidate already is what the text asks for, so HaX keeps it legal.</summary>
+    private static bool MatchesRequest(PKM pk, ShowdownSet set, string text)
+    {
+        if (pk.Species != set.Species || pk.Form != set.Form || pk.CurrentLevel != set.Level) return false;
+        ReadOnlySpan<ushort> moves = [pk.Move1, pk.Move2, pk.Move3, pk.Move4];
+        foreach (var move in set.Moves)
+            if (move != 0 && !moves.Contains(move)) return false;
+        if (set.HeldItem != 0)
+        {
+            // Compare with what the format can hold: an item the game lacks can't be forced either.
+            var probe = pk.Clone();
+            probe.ApplyHeldItem(set.HeldItem, set.Context);
+            if (probe.HeldItem != pk.HeldItem) return false;
+        }
+        if (set.Nature < Nature.Random && pk.Nature != set.Nature) return false;
+        if (set.Ability >= 0 && pk.Ability != set.Ability) return false;
+        if (set.Shiny && !pk.IsShiny) return false;
+        Span<int> have = stackalloc int[6];
+        pk.GetEVs(have);
+        if (pk is not GBPKM && !have.SequenceEqual(set.EVs)) return false;
+        pk.GetIVs(have);
+        return !States(text, "IVs:") || have.SequenceEqual(set.IVs);
+    }
+
+    private static bool States(string text, string field) =>
+        text.Split('\n').Any(line => line.TrimStart().StartsWith(field, StringComparison.OrdinalIgnoreCase));
+
     private static PKM BuildUnsupportedMon(SaveFile save, ShowdownSet set)
     {
         var template = EntityBlank.GetBlank(save);
@@ -397,10 +469,10 @@ public sealed class LegalizerService : ILegalizerService
             return BuildGeneratedEntity(BuildUnsupportedMon(save, set));
         }
         var result = GenerateLegal(engineSession, set);
-        if (result.Status is not LegalizationResult.Regenerated) return null;
-
-        var created = ConvertForSave(save, result.Created);
-        return BuildGeneratedEntity(created);
+        var created = result.Status is LegalizationResult.Regenerated ? ConvertForSave(save, result.Created) : null;
+        if (allowUnsupportedSpecies && (created is null || !MatchesRequest(created, set, showdownText)))
+            return BuildGeneratedEntity(BuildAsWritten(engineSession, set, showdownText, created));
+        return created is null ? null : BuildGeneratedEntity(created);
     }
 
     private GeneratedEntity BuildGeneratedEntity(PKM created)

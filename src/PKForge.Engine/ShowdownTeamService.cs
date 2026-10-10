@@ -72,7 +72,8 @@ public static class ShowdownTeamService
                 {
                     var la = new LegalityAnalysis(pk);
                     previews.Add(new ShowdownSetPreview(i, text, title, pk.Species, pk.Form, pk.IsShiny, true, la.Valid,
-                        la.Valid ? $"Legal · Lv. {pk.CurrentLevel}" : "Generated, legality imperfect",
+                        la.Valid ? $"Legal · Lv. {pk.CurrentLevel}"
+                            : allowUnsupportedSpecies ? $"HaX · not legal · Lv. {pk.CurrentLevel}" : "Generated, legality imperfect",
                         problems, generated!.Data));
                 }
             }
