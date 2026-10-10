@@ -247,9 +247,16 @@ public sealed class LegalizerService : ILegalizerService
     /// </summary>
     internal static PKM LegalizeKeepingOrigin(SaveFile save, PKM current, Shiny shinyKind = Shiny.Always)
     {
+        // The smallest repair first: a Pokémon illegal only through its EVs keeps everything else.
+        var trimmed = WithEVsInCaps(current);
+        if (trimmed is not null && new LegalityAnalysis(trimmed).Valid)
+            return trimmed;
+        // Auto-Legality reads the set back from the Pokémon, EVs included: hand it legal ones.
+        var start = trimmed ?? current;
+
         var analysis = new LegalityAnalysis(current);
         if (current.IsEgg || current.WasEgg)
-            return save.Legalize(current.Clone(), analysis);
+            return save.Legalize(start.Clone(), analysis);
         if (RegenerateAtOrigin(save, current, analysis, shinyKind) is { } atOrigin)
             return atOrigin;
         // The analysis's best match for a broken caught Pokémon is often an egg (eggs fit any
@@ -264,7 +271,7 @@ public sealed class LegalizerService : ILegalizerService
             {
                 EncounterMovesetGenerator.PriorityList =
                     CatchesFirst;
-                repaired = save.Legalize(current.Clone(), lead); // Legalize rewrites the mon it is given
+                repaired = save.Legalize(start.Clone(), lead); // Legalize rewrites the mon it is given
             }
             finally { EncounterMovesetGenerator.PriorityList = previous; }
         }
@@ -282,7 +289,8 @@ public sealed class LegalizerService : ILegalizerService
     /// <summary>
     /// Rebuilds the Pokémon from an encounter at its own met location and game, keeping what
     /// the player asked for (species, shiny, gender, nature) and, where still legal, its ball,
-    /// level, moves and nickname. Auto-Legality walks every encounter of the species first and
+    /// level, moves, nickname, held item, IVs, ability and EVs (trimmed to the caps).
+    /// Auto-Legality walks every encounter of the species first and
     /// ran out of time before reaching the right place; this goes straight there. Null when no
     /// encounter there yields a legal Pokémon.
     /// </summary>
@@ -312,6 +320,9 @@ public sealed class LegalizerService : ILegalizerService
             Gender = current.Gender is 0 or 1 ? (Gender)current.Gender : Gender.Random,
             Nature = current.Nature,
         };
+        var ivs = current.GetIVs();
+        var evs = new int[6];
+        (WithEVsInCaps(current) ?? current).GetEVs(evs);
         // An encounter that comes out above the Pokémon's level (Sword/Shield's Wild Area statics
         // are made at Lv 60) is kept only when no encounter there fits the level it has now.
         PKM? higher = null;
@@ -340,6 +351,14 @@ public sealed class LegalizerService : ILegalizerService
             if (current.CurrentLevel > made.CurrentLevel) made = TryKeep(made, pk => { pk.CurrentLevel = current.CurrentLevel; pk.ResetPartyStats(); });
             if (moves.Length > 0) made = TryKeep(made, pk => { pk.SetMoves(moves); pk.HealPP(); });
             if (current.IsNicknamed) made = TryKeep(made, pk => pk.SetNickname(current.Nickname));
+            // And what it was trained with. Gen 3/4 tie the IVs to the PID, so its own PID and IVs
+            // go back together when that pair was a legal one, else the IVs alone.
+            if (current.HeldItem != 0) made = TryKeep(made, pk => pk.HeldItem = current.HeldItem);
+            var own = TryKeep(made, pk => TakeIdentity(pk, current));
+            if (IsShinyAsAsked(own, current.IsShiny, shinyKind)) made = own;
+            if (made.GetIVs() != ivs) made = TryKeep(made, pk => pk.SetIVs(ivs));
+            if (made.Ability != current.Ability) made = TryKeep(made, pk => TakeAbility(pk, current));
+            if (evs.Any(ev => ev != 0)) made = TryKeep(made, pk => { pk.SetEVs(evs); pk.ResetPartyStats(); });
             if (made.CurrentLevel <= current.CurrentLevel) return made;
             higher ??= made;
         }
@@ -374,6 +393,65 @@ public sealed class LegalizerService : ILegalizerService
         evolved.ResetPartyStats();
         evolved.RefreshChecksum();
         return new LegalityAnalysis(evolved).Valid ? evolved : null;
+    }
+
+    /// <summary>
+    /// A copy whose EVs fit the format's caps (per stat, and 510 in all), cut in proportion so
+    /// the spread keeps its shape (six 252s become six 85s); null when they already fit.
+    /// </summary>
+    private static PKM? WithEVsInCaps(PKM pk)
+    {
+        if (pk.Format < 3) return null; // Gen 1/2 stat experience has no total cap
+        var evs = new int[6];
+        pk.GetEVs(evs);
+        var capped = evs.Select(ev => Math.Min(ev, pk.MaxEV)).ToArray();
+        var total = capped.Sum();
+        if (total > EffortValues.Max510)
+        {
+            capped = capped.Select(ev => ev * EffortValues.Max510 / total).ToArray();
+            // Rounding down leaves a few points unspent: hand them back in stat order.
+            for (var i = 0; i < 6 && capped.Sum() < EffortValues.Max510; i++)
+                if (capped[i] > 0 && capped[i] < pk.MaxEV) capped[i]++;
+        }
+        if (capped.SequenceEqual(evs)) return null;
+        var trimmed = pk.Clone();
+        trimmed.SetEVs(capped);
+        // The stats follow the EVs, the HP it has left does not (Gen 8+ keep it in the box too).
+        trimmed.ResetPartyStats();
+        trimmed.Stat_HPCurrent = Math.Min(pk.Stat_HPCurrent, trimmed.Stat_HPMax);
+        trimmed.RefreshChecksum();
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Gives <paramref name="pk"/> the PID, encryption constant, IVs, ability and size of
+    /// <paramref name="from"/>: what a seed or PID decides together, so they go back as a set.
+    /// </summary>
+    private static void TakeIdentity(PKM pk, PKM from)
+    {
+        pk.PID = from.PID;
+        pk.EncryptionConstant = from.EncryptionConstant;
+        pk.SetIVs(from.GetIVs());
+        TakeAbility(pk, from);
+        if (pk is IScaledSize size && from is IScaledSize fromSize)
+        {
+            size.HeightScalar = fromSize.HeightScalar;
+            size.WeightScalar = fromSize.WeightScalar;
+        }
+        if (pk is IScaledSize3 scale && from is IScaledSize3 fromScale)
+            scale.Scale = fromScale.Scale;
+        if (pk is IScaledSizeValue absolute)
+        {
+            absolute.HeightAbsolute = absolute.CalcHeightAbsolute;
+            absolute.WeightAbsolute = absolute.CalcWeightAbsolute;
+        }
+    }
+
+    /// <summary>The ability slot of <paramref name="from"/> (Gen 3 stores only the slot bit).</summary>
+    private static void TakeAbility(PKM pk, PKM from)
+    {
+        if (pk.Format >= 4) pk.RefreshAbility(from.AbilityNumber >> 1);
+        else pk.AbilityNumber = from.AbilityNumber;
     }
 
     private static bool IsShinyAsAsked(PKM pk, bool shiny, Shiny kind) => !shiny ? !pk.IsShiny : kind switch
