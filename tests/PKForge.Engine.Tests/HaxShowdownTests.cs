@@ -71,20 +71,18 @@ public sealed class HaxShowdownTests
     [Fact]
     public void HaxForcesIVsTheTextStates()
     {
-        // Wild-only moveset: its legal version gets PID-tied IVs, so the stated 31s must be forced.
-        const string tropius = """
-            Tropius
-            Level: 36
+        // Regirock can't breed, so its only legal version is the static one with PID-tied IVs:
+        // the stated 31s must be forced. (A species that breeds is hatched with them, legally.)
+        const string regirock = """
+            Regirock
+            Level: 40
             IVs: 31 HP / 31 Atk / 31 Def / 31 SpA / 31 SpD / 31 Spe
-            - Cut
-            - Fly
-            - Flash
-            - Rock Smash
             """;
         using var session = new SaveEngine().OpenBlankSession(3);
-        var pk = Built(new LegalizerService().GenerateDataFromShowdown(session, tropius, allowUnsupportedSpecies: true));
+        var pk = Built(new LegalizerService().GenerateDataFromShowdown(session, regirock, allowUnsupportedSpecies: true));
         Assert.Equal([31, 31, 31, 31, 31, 31], new[] { pk.IV_HP, pk.IV_ATK, pk.IV_DEF, pk.IV_SPA, pk.IV_SPD, pk.IV_SPE });
-        Assert.Equal(["Cut", "Fly", "Flash", "Rock Smash"], MoveNames(pk));
+        Assert.Equal((ushort)Species.Regirock, pk.Species);
+        Assert.False(new LegalityAnalysis(pk).Valid);
     }
 
     [Fact]

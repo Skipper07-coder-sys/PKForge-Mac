@@ -71,7 +71,7 @@ public sealed class LegalizerService : ILegalizerService
                     "Generated (HaX): this species is unsupported in this game; no guarantee it works.");
         }
 
-        var result = GenerateLegal(engineSession, set);
+        var result = GenerateLegal(engineSession, set, showdownText);
         var legal = result.Status is LegalizationResult.Regenerated ? ConvertForSave(save, result.Created) : null;
         if (allowUnsupportedSpecies && (legal is null || !MatchesRequest(legal, set, showdownText)))
         {
@@ -656,7 +656,7 @@ public sealed class LegalizerService : ILegalizerService
             if (!allowUnsupportedSpecies) return null;
             return BuildGeneratedEntity(BuildUnsupportedMon(save, set));
         }
-        var result = GenerateLegal(engineSession, set);
+        var result = GenerateLegal(engineSession, set, showdownText);
         var created = result.Status is LegalizationResult.Regenerated ? ConvertForSave(save, result.Created) : null;
         if (allowUnsupportedSpecies && (created is null || !MatchesRequest(created, set, showdownText)))
             return BuildGeneratedEntity(BuildAsWritten(engineSession, set, showdownText, created));
@@ -763,7 +763,32 @@ public sealed class LegalizerService : ILegalizerService
         return null;
     }
 
-    private APILegality.AsyncLegalizationResult GenerateLegal(SaveEngineSession session, ShowdownSet set)
+    /// <summary>
+    /// A legal Pokémon for a pasted set, a catch where one fits. Gen 3/4 tie a wild or gift
+    /// Pokémon's IVs to its PID, so IVs the text states came out random; a bred egg's IVs are free.
+    /// When the catch lacks the stated IVs, an egg is tried and kept if it has them (only where an
+    /// egg can be it: a species that breeds, at or above the hatch level).
+    /// </summary>
+    private APILegality.AsyncLegalizationResult GenerateLegal(SaveEngineSession session, ShowdownSet set, string text)
+    {
+        var result = GenerateLegal(session, set);
+        if (!States(text, "IVs:") || result.Status is not LegalizationResult.Regenerated || HasIVs(result.Created, set))
+            return result;
+        var hatched = GenerateLegal(session, set, EggsFirst);
+        return hatched.Status is LegalizationResult.Regenerated && HasIVs(hatched.Created, set)
+            && new LegalityAnalysis(hatched.Created).Valid ? hatched : result;
+    }
+
+    private static bool HasIVs(PKM pk, ShowdownSet set)
+    {
+        if (pk is GBPKM) return true; // Gen 1/2 DVs: no PID to tie them, nothing an egg would change
+        Span<int> ivs = stackalloc int[6];
+        pk.GetIVs(ivs);
+        return ivs.SequenceEqual(set.IVs);
+    }
+
+    private APILegality.AsyncLegalizationResult GenerateLegal(SaveEngineSession session, ShowdownSet set,
+        EncounterTypeGroup[]? encounterOrder = null)
     {
         lock (TrainerGenerationLock)
         {
@@ -784,9 +809,9 @@ public sealed class LegalizerService : ILegalizerService
             {
                 // Auto-Legality tries eggs first, and an egg fits any request (any PID, any
                 // shiny), so every generated Pokémon came out hatched. A created Pokémon is
-                // looked for as a catch, a gift or a trade first; eggs only when nothing else fits.
-                EncounterMovesetGenerator.PriorityList =
-                    CatchesFirst;
+                // looked for as a catch, a gift or a trade first; eggs only when nothing else fits
+                // (or when the caller asks for eggs first).
+                EncounterMovesetGenerator.PriorityList = encounterOrder ?? CatchesFirst;
 
                 if (save is SAV8BSLuminescent)
                     return generationSave.GetLegalFromSet(set);
